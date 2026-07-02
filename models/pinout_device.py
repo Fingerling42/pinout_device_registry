@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from odoo import _, api, fields, models
 
 DEVICE_STATE_SELECTION = [
@@ -101,6 +103,30 @@ class PinoutDevice(models.Model):
         store=True,
     )
 
+    last_customer_id = fields.Many2one(
+        "res.partner",
+        compute="_compute_last_sales_data",
+        readonly=True,
+        store=False,
+    )
+    last_sale_order_id = fields.Many2one(
+        "sale.order",
+        compute="_compute_last_sales_data",
+        readonly=True,
+        store=False,
+    )
+    last_delivery_id = fields.Many2one(
+        "stock.picking",
+        compute="_compute_last_sales_data",
+        readonly=True,
+        store=False,
+    )
+    last_order_reference = fields.Char(
+        compute="_compute_last_sales_data",
+        readonly=True,
+        store=False,
+    )
+
     robonomics_device_address = fields.Char(tracking=True)
     subscription_owner_address = fields.Char(tracking=True)
     robonomics_notes = fields.Text()
@@ -159,6 +185,61 @@ class PinoutDevice(models.Model):
                     summary_parts.append(product_attribute_value.name)
             device.variant_summary = " / ".join(summary_parts)
 
+    @api.depends("final_lot_id")
+    def _compute_last_sales_data(self):
+        for device in self:
+            device.last_customer_id = False
+            device.last_sale_order_id = False
+            device.last_delivery_id = False
+            device.last_order_reference = False
+
+        devices_by_lot = defaultdict(lambda: self.env["pinout.device"])
+        for device in self.filtered("final_lot_id"):
+            devices_by_lot[device.final_lot_id.id] |= device
+        if not devices_by_lot:
+            return
+
+        move_lines = self.env["stock.move.line"].search(
+            [
+                ("lot_id", "in", list(devices_by_lot)),
+                ("state", "=", "done"),
+                ("location_dest_id.usage", "=", "customer"),
+                ("picking_id", "!=", False),
+            ],
+            order="date desc, id desc",
+        )
+
+        latest_move_line_by_lot = {}
+        sorted_move_lines = move_lines.sorted(
+            key=lambda line: (
+                line.picking_id.date_done or line.picking_id.date or line.date,
+                line.id,
+            ),
+            reverse=True,
+        )
+        for move_line in sorted_move_lines:
+            lot_id = move_line.lot_id.id
+            if lot_id not in latest_move_line_by_lot:
+                latest_move_line_by_lot[lot_id] = move_line
+
+        for lot_id, devices in devices_by_lot.items():
+            move_line = latest_move_line_by_lot.get(lot_id)
+            if not move_line:
+                continue
+            picking = move_line.picking_id
+            sale_order = picking.sale_id
+            last_order_reference = (
+                sale_order.client_order_ref
+                or sale_order.name
+                or picking.origin
+                or False
+            )
+            for device in devices:
+                device.last_delivery_id = picking
+                device.last_customer_id = picking.partner_id
+                device.last_sale_order_id = sale_order
+                device.last_order_reference = last_order_reference
+
     @api.depends(
         "device_uid",
         "device_type_id.name",
@@ -201,6 +282,45 @@ class PinoutDevice(models.Model):
             "name": _("Final Lot / Serial"),
             "res_model": "stock.lot",
             "res_id": self.final_lot_id.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+    def action_open_last_delivery(self):
+        self.ensure_one()
+        if not self.last_delivery_id:
+            return False
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Last Delivery"),
+            "res_model": "stock.picking",
+            "res_id": self.last_delivery_id.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+    def action_open_last_sale_order(self):
+        self.ensure_one()
+        if not self.last_sale_order_id:
+            return False
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Last Sale Order"),
+            "res_model": "sale.order",
+            "res_id": self.last_sale_order_id.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+    def action_open_last_customer(self):
+        self.ensure_one()
+        if not self.last_customer_id:
+            return False
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Last Customer"),
+            "res_model": "res.partner",
+            "res_id": self.last_customer_id.id,
             "view_mode": "form",
             "target": "current",
         }
