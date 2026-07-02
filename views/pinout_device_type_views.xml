@@ -1,3 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="pinout_device_type_view_tree" model="ir.ui.view">
+        <field name="name">pinout.device.type.view.tree</field>
+        <field name="model">pinout.device.type</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="active" widget="boolean_toggle"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="pinout_device_type_view_form" model="ir.ui.view">
+        <field name="name">pinout.device.type.view.form</field>
+        <field name="model">pinout.device.type</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="code"/>
+                        </group>
+                        <group>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Attribute Lines">
+                            <field name="attribute_line_ids">
+                                <tree editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="attribute_id"/>
+                                    <field name="use_variant_code"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="pinout_device_type_view_search" model="ir.ui.view">
+        <field name="name">pinout.device.type.view.search</field>
+        <field name="model">pinout.device.type</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="code"/>
+                <filter string="Active" name="active" domain="[('active', '=', True)]"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]" context="{'active_test': False}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="pinout_device_type_action" model="ir.actions.act_window">
+        <field name="name">Device Types</field>
+        <field name="res_model">pinout.device.type</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="pinout_device_type_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a device type
+            </p>
+        </field>
+    </record>
 </odoo>
