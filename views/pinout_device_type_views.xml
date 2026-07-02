@@ -31,9 +31,16 @@
                         <page string="Product Forms" name="product_forms">
                             <field
                                 name="allowed_product_template_ids"
-                                widget="many2many_tags"
                                 options="{'no_create': True, 'no_create_edit': True}"
-                            />
+                            >
+                                <tree>
+                                    <field name="default_code" optional="show"/>
+                                    <field name="name"/>
+                                    <field name="detailed_type"/>
+                                    <field name="tracking"/>
+                                    <field name="product_variant_count"/>
+                                </tree>
+                            </field>
                         </page>
                         <page string="Attribute Lines">
                             <field name="attribute_line_ids">
