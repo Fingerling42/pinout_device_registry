@@ -80,23 +80,18 @@
                         <group string="Current State">
                             <field name="current_product_id"/>
                             <field name="variant_summary" readonly="1"/>
+                            <field name="state"/>
                             <field name="quality_status"/>
                             <field name="location_id"/>
                             <field name="physical_location_note"/>
                         </group>
                     </group>
-                    <group string="Current Attributes">
-                        <field
-                            name="current_attribute_value_ids"
-                            widget="many2many_tags"
-                            readonly="1"
-                            nolabel="1"
-                        />
-                    </group>
-                    <group string="Final Serial">
+                    <group string="Final Lot / Serial">
                         <group>
-                            <field name="final_lot_id"/>
-                            <field name="final_serial_name" readonly="1"/>
+                            <field
+                                name="final_lot_id"
+                                domain="[('name', '=', device_uid), ('product_id', '=', current_product_id)]"
+                            />
                         </group>
                     </group>
                     <notebook>

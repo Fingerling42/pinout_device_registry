@@ -139,6 +139,26 @@ class PinoutDevice(models.Model):
             if bundle.bundle_type == "dual" and len(bundle.device_ids) > 2:
                 raise ValidationError(_("Dual bundles can contain at most 2 devices."))
 
+    @api.constrains("device_uid", "current_product_id", "final_lot_id")
+    def _check_final_lot_matches_device(self):
+        for device in self.filtered("final_lot_id"):
+            if device.final_lot_id.name != device.device_uid:
+                raise ValidationError(
+                    _(
+                        "Final Lot / Serial must match Device UID for device %(device)s.",
+                        device=device.device_uid,
+                    )
+                )
+            if (
+                device.current_product_id
+                and device.final_lot_id.product_id != device.current_product_id
+            ):
+                raise ValidationError(
+                    _(
+                        "Final Lot / Serial product must match Current Product / Current Form."
+                    )
+                )
+
     @api.depends("final_lot_id.name")
     def _compute_final_serial_name(self):
         for device in self:
@@ -255,6 +275,8 @@ class PinoutDevice(models.Model):
 
     @api.onchange("final_lot_id")
     def _onchange_final_lot_id(self):
+        if self.final_lot_id:
+            self.current_product_id = self.final_lot_id.product_id
         if (
             self.final_lot_id
             and self.device_uid
@@ -269,6 +291,22 @@ class PinoutDevice(models.Model):
                 }
             }
         return None
+
+    @api.onchange("device_uid", "current_product_id")
+    def _onchange_final_lot_domain(self):
+        if (
+            self.final_lot_id
+            and self.current_product_id
+            and self.final_lot_id.product_id != self.current_product_id
+        ):
+            self.final_lot_id = False
+
+        domain = []
+        if self.device_uid:
+            domain.append(("name", "=", self.device_uid))
+        if self.current_product_id:
+            domain.append(("product_id", "=", self.current_product_id.id))
+        return {"domain": {"final_lot_id": domain}}
 
     def action_open_final_lot(self):
         self.ensure_one()
