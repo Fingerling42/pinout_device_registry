@@ -1,3 +1,122 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="pinout_device_bundle_view_tree" model="ir.ui.view">
+        <field name="name">pinout.device.bundle.view.tree</field>
+        <field name="model">pinout.device.bundle</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="bundle_type"/>
+                <field name="state"/>
+                <field name="device_count"/>
+                <field name="customer_id"/>
+                <field name="sale_order_id"/>
+                <field name="delivery_id"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="pinout_device_bundle_view_form" model="ir.ui.view">
+        <field name="name">pinout.device.bundle.view.form</field>
+        <field name="model">pinout.device.bundle</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field
+                        name="state"
+                        widget="statusbar"
+                        statusbar_visible="draft,reserved,sold,cancelled"
+                    />
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button
+                            name="action_open_devices"
+                            type="object"
+                            class="oe_stat_button"
+                            icon="fa-microchip"
+                        >
+                            <field name="device_count" widget="statinfo" string="Devices"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="Bundle name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="bundle_type"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Devices" name="devices">
+                            <field name="device_ids" readonly="1">
+                                <tree>
+                                    <field name="device_uid"/>
+                                    <field name="device_type_id"/>
+                                    <field name="current_product_id"/>
+                                    <field name="variant_summary"/>
+                                    <field name="state"/>
+                                    <field name="quality_status"/>
+                                    <field name="final_lot_id"/>
+                                </tree>
+                            </field>
+                        </page>
+                        <page string="Sales / Delivery" name="sales_delivery">
+                            <group>
+                                <field name="customer_id" readonly="1"/>
+                                <field name="sale_order_id" readonly="1"/>
+                                <field name="delivery_id" readonly="1"/>
+                            </group>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids" groups="base.group_user"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="pinout_device_bundle_view_search" model="ir.ui.view">
+        <field name="name">pinout.device.bundle.view.search</field>
+        <field name="model">pinout.device.bundle</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="bundle_type"/>
+                <filter string="Active" name="active" domain="[('active', '=', True)]"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]" context="{'active_test': False}"/>
+                <separator/>
+                <filter string="Draft" name="state_draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Reserved" name="state_reserved" domain="[('state', '=', 'reserved')]"/>
+                <filter string="Sold" name="state_sold" domain="[('state', '=', 'sold')]"/>
+                <filter string="Cancelled" name="state_cancelled" domain="[('state', '=', 'cancelled')]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Type" name="group_by_bundle_type" context="{'group_by': 'bundle_type'}"/>
+                    <filter string="State" name="group_by_state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="pinout_device_bundle_action" model="ir.actions.act_window">
+        <field name="name">Bundles</field>
+        <field name="res_model">pinout.device.bundle</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="pinout_device_bundle_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a device bundle
+            </p>
+        </field>
+    </record>
 </odoo>

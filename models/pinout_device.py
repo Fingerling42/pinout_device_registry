@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
 
 DEVICE_STATE_SELECTION = [
     ("wip", "WIP"),
@@ -127,6 +128,11 @@ class PinoutDevice(models.Model):
         store=False,
     )
 
+    bundle_id = fields.Many2one(
+        "pinout.device.bundle",
+        tracking=True,
+    )
+
     robonomics_device_address = fields.Char(tracking=True)
     subscription_owner_address = fields.Char(tracking=True)
     robonomics_notes = fields.Text()
@@ -141,6 +147,13 @@ class PinoutDevice(models.Model):
             "The Device UID must be unique.",
         ),
     ]
+
+    @api.constrains("bundle_id")
+    def _check_dual_bundle_device_count(self):
+        for device in self.filtered("bundle_id"):
+            bundle = device.bundle_id
+            if bundle.bundle_type == "dual" and len(bundle.device_ids) > 2:
+                raise ValidationError(_("Dual bundles can contain at most 2 devices."))
 
     @api.depends("final_lot_id.name")
     def _compute_final_serial_name(self):
