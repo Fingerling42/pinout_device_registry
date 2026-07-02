@@ -10,6 +10,7 @@
         "mail",
         "product",
         "stock",
+        "mrp",
         "sale_stock",
     ],
     "data": [

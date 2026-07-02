@@ -1,5 +1,8 @@
+from collections import defaultdict
+
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools import float_compare
 
 
 class PinoutDeviceBundle(models.Model):
@@ -28,6 +31,17 @@ class PinoutDeviceBundle(models.Model):
         default="draft",
         required=True,
         tracking=True,
+    )
+    bundle_product_id = fields.Many2one(
+        "product.product",
+        string="Bundle Product / Kit Variant",
+        tracking=True,
+        help="Odoo product variant used as the physical kit/bundle. Its Kit BoM defines which device products can be attached.",
+    )
+    expected_component_summary = fields.Text(
+        compute="_compute_expected_component_summary",
+        string="Expected Components",
+        readonly=True,
     )
     device_ids = fields.One2many(
         "pinout.device",
@@ -63,6 +77,11 @@ class PinoutDeviceBundle(models.Model):
         for bundle in self:
             bundle.device_count = len(bundle.device_ids)
 
+    @api.depends("bundle_product_id")
+    def _compute_expected_component_summary(self):
+        for bundle in self:
+            bundle.expected_component_summary = bundle._format_expected_components()
+
     @api.depends("device_ids", "device_ids.final_lot_id")
     def _compute_bundle_sales_data(self):
         for bundle in self:
@@ -88,11 +107,145 @@ class PinoutDeviceBundle(models.Model):
             return first_value
         return False
 
-    @api.constrains("bundle_type", "device_ids")
-    def _check_dual_device_count(self):
+    @api.constrains("bundle_type", "bundle_product_id")
+    def _check_dual_bundle_product(self):
         for bundle in self:
-            if bundle.bundle_type == "dual" and len(bundle.device_ids) > 2:
-                raise ValidationError(_("Dual bundles can contain at most 2 devices."))
+            if bundle.bundle_type == "dual" and not bundle.bundle_product_id:
+                raise ValidationError(
+                    _("Dual bundles must have a Kit product variant.")
+                )
+
+    @api.constrains("bundle_product_id", "device_ids")
+    def _check_devices_match_expected_components(self):
+        self._validate_bundle_devices()
+
+    def _validate_bundle_devices(self):
+        blocked_states = self._get_blocked_device_states()
+        for bundle in self:
+            if not bundle.bundle_product_id:
+                continue
+
+            expected_quantities = bundle._get_expected_component_quantities()
+            if not expected_quantities:
+                raise ValidationError(
+                    _(
+                        "Bundle product %(product)s must have an active Kit BoM with component lines.",
+                        product=bundle.bundle_product_id.display_name,
+                    )
+                )
+
+            actual_quantities = defaultdict(float)
+            for device in bundle.device_ids:
+                if device.state in blocked_states:
+                    raise ValidationError(
+                        _(
+                            "Device %(device)s cannot be added to a bundle because it is %(state)s.",
+                            device=device.device_uid,
+                            state=dict(device._fields["state"].selection).get(
+                                device.state, device.state
+                            ),
+                        )
+                    )
+                if device.last_delivery_id:
+                    raise ValidationError(
+                        _(
+                            "Device %(device)s cannot be added to a bundle because it was already delivered in %(delivery)s.",
+                            device=device.device_uid,
+                            delivery=device.last_delivery_id.display_name,
+                        )
+                    )
+                if not device.current_product_id:
+                    raise ValidationError(
+                        _(
+                            "Device %(device)s must have Current Product / Current Form before it can be added to a bundle.",
+                            device=device.device_uid,
+                        )
+                    )
+                if device.current_product_id not in expected_quantities:
+                    raise ValidationError(
+                        _(
+                            "Device %(device)s has product %(product)s, which is not expected by the Kit BoM of %(bundle)s.",
+                            device=device.device_uid,
+                            product=device.current_product_id.display_name,
+                            bundle=bundle.bundle_product_id.display_name,
+                        )
+                    )
+                actual_quantities[device.current_product_id] += 1.0
+
+            for product, actual_quantity in actual_quantities.items():
+                expected_quantity = expected_quantities[product]
+                if (
+                    float_compare(
+                        actual_quantity,
+                        expected_quantity,
+                        precision_rounding=product.uom_id.rounding,
+                    )
+                    > 0
+                ):
+                    raise ValidationError(
+                        _(
+                            "Bundle %(bundle)s can contain at most %(qty)s x %(product)s according to its Kit BoM.",
+                            bundle=bundle.name,
+                            qty=self._format_quantity(expected_quantity),
+                            product=product.display_name,
+                        )
+                    )
+
+    def _get_blocked_device_states(self):
+        return {"sold", "returned", "scrapped"}
+
+    def _get_kit_bom(self):
+        self.ensure_one()
+        if not self.bundle_product_id:
+            return self.env["mrp.bom"]
+        bom_by_product = self.env["mrp.bom"]._bom_find(
+            self.bundle_product_id,
+            bom_type="phantom",
+        )
+        return bom_by_product.get(self.bundle_product_id, self.env["mrp.bom"])
+
+    def _get_expected_component_quantities(self):
+        self.ensure_one()
+        bom = self._get_kit_bom()
+        if not bom:
+            return {}
+
+        quantities = defaultdict(float)
+        for line in bom.bom_line_ids:
+            if line._skip_bom_line(self.bundle_product_id):
+                continue
+            line_quantity = line.product_uom_id._compute_quantity(
+                line.product_qty / bom.product_qty,
+                line.product_id.uom_id,
+                round=False,
+            )
+            quantities[line.product_id] += line_quantity
+        return quantities
+
+    def _format_expected_components(self):
+        self.ensure_one()
+        if not self.bundle_product_id:
+            return False
+
+        expected_quantities = self._get_expected_component_quantities()
+        if not expected_quantities:
+            return _("No active Kit BoM found for this product variant.")
+
+        lines = []
+        for product, quantity in sorted(
+            expected_quantities.items(), key=lambda item: item[0].display_name
+        ):
+            lines.append(
+                _(
+                    "%(qty)s x %(product)s",
+                    qty=self._format_quantity(quantity),
+                    product=product.display_name,
+                )
+            )
+        return "\n".join(lines)
+
+    def _format_quantity(self, quantity):
+        return ("%s" % quantity).rstrip("0").rstrip(".")
 
     def action_open_devices(self):
         self.ensure_one()

@@ -137,12 +137,10 @@ class PinoutDevice(models.Model):
         ),
     ]
 
-    @api.constrains("bundle_id")
-    def _check_dual_bundle_device_count(self):
+    @api.constrains("bundle_id", "current_product_id")
+    def _check_bundle_device_allowed(self):
         for device in self.filtered("bundle_id"):
-            bundle = device.bundle_id
-            if bundle.bundle_type == "dual" and len(bundle.device_ids) > 2:
-                raise ValidationError(_("Dual bundles can contain at most 2 devices."))
+            device.bundle_id._validate_bundle_devices()
 
     @api.constrains("device_uid", "current_product_id", "final_lot_id")
     def _check_final_lot_matches_device(self):
