@@ -1,3 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="product_attribute_value_list_inherit_variant_code" model="ir.ui.view">
+        <field name="name">product.attribute.value.list.inherit.variant.code</field>
+        <field name="model">product.attribute.value</field>
+        <field name="inherit_id" ref="product.product_attribute_value_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="variant_code" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_attribute_form_inherit_variant_code" model="ir.ui.view">
+        <field name="name">product.attribute.form.inherit.variant.code</field>
+        <field name="model">product.attribute</field>
+        <field name="inherit_id" ref="product.product_attribute_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='value_ids']/tree/field[@name='name']" position="after">
+                <field name="variant_code" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_attribute_value_view_form" model="ir.ui.view">
+        <field name="name">product.attribute.value.view.form.variant.code</field>
+        <field name="model">product.attribute.value</field>
+        <field name="arch" type="xml">
+            <form string="Attribute Value">
+                <sheet>
+                    <group>
+                        <field name="attribute_id" readonly="1"/>
+                        <field name="name" readonly="1"/>
+                        <field name="variant_code"/>
+                        <field name="default_extra_price" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="product_attribute_value_view_search" model="ir.ui.view">
+        <field name="name">product.attribute.value.view.search.variant.code</field>
+        <field name="model">product.attribute.value</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="attribute_id"/>
+                <field name="name"/>
+                <field name="variant_code"/>
+                <filter string="Has Variant Code" name="has_variant_code" domain="[('variant_code', '!=', False)]"/>
+                <filter string="Without Variant Code" name="without_variant_code" domain="[('variant_code', '=', False)]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Attribute" name="group_by_attribute" context="{'group_by': 'attribute_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="product_attribute_value_action" model="ir.actions.act_window">
+        <field name="name">Attribute Variant Codes</field>
+        <field name="res_model">product.attribute.value</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="product_attribute_value_view_search"/>
+        <field name="context">{'search_default_group_by_attribute': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Configure variant codes on product attribute values
+            </p>
+        </field>
+    </record>
 </odoo>
