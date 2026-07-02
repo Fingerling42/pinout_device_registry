@@ -1,3 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="pinout_device_batch_update_wizard_view_form" model="ir.ui.view">
+        <field name="name">pinout.device.batch.update.wizard.view.form</field>
+        <field name="model">pinout.device.batch.update.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="device_ids" widget="many2many_tags"/>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="update_current_product"/>
+                            <field
+                                name="current_product_id"
+                                invisible="not update_current_product"
+                                required="update_current_product"
+                            />
+                            <field name="update_state"/>
+                            <field
+                                name="state"
+                                invisible="not update_state"
+                                required="update_state"
+                            />
+                            <field name="update_quality_status"/>
+                            <field
+                                name="quality_status"
+                                invisible="not update_quality_status"
+                                required="update_quality_status"
+                            />
+                        </group>
+                        <group>
+                            <field name="update_location"/>
+                            <field
+                                name="location_id"
+                                invisible="not update_location"
+                                required="update_location"
+                            />
+                            <field name="update_physical_location_note"/>
+                            <field
+                                name="physical_location_note"
+                                invisible="not update_physical_location_note"
+                            />
+                            <field name="update_bundle"/>
+                            <field
+                                name="bundle_id"
+                                invisible="not update_bundle"
+                            />
+                        </group>
+                    </group>
+                </sheet>
+                <footer>
+                    <button
+                        name="action_apply"
+                        string="Apply"
+                        type="object"
+                        class="btn-primary"
+                    />
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="pinout_device_batch_update_action" model="ir.actions.act_window">
+        <field name="name">Batch Update Devices</field>
+        <field name="res_model">pinout.device.batch.update.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="pinout_device_batch_update_server_action" model="ir.actions.server">
+        <field name="name">Batch Update Devices</field>
+        <field name="model_id" ref="model_pinout_device"/>
+        <field name="binding_model_id" ref="model_pinout_device"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">
+action = records.action_open_batch_update_wizard()
+        </field>
+        <field name="groups_id" eval="[(4, ref('pinout_device_registry.group_pinout_device_user'))]"/>
+    </record>
 </odoo>

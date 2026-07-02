@@ -3,23 +3,7 @@ from collections import defaultdict
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
-DEVICE_STATE_SELECTION = [
-    ("wip", "WIP"),
-    ("rework", "Rework"),
-    ("ready_for_packaging", "Ready for Packaging"),
-    ("ready_for_sale", "Ready for Sale"),
-    ("reserved", "Reserved"),
-    ("sold", "Sold"),
-    ("returned", "Returned"),
-    ("scrapped", "Scrapped"),
-]
-
-QUALITY_STATUS_SELECTION = [
-    ("unknown", "Unknown"),
-    ("ok", "OK"),
-    ("needs_test", "Needs Test"),
-    ("failed", "Failed"),
-]
+from .pinout_device_selection import DEVICE_STATE_SELECTION, QUALITY_STATUS_SELECTION
 
 
 class PinoutDevice(models.Model):
@@ -336,4 +320,18 @@ class PinoutDevice(models.Model):
             "res_id": self.last_customer_id.id,
             "view_mode": "form",
             "target": "current",
+        }
+
+    def action_open_batch_update_wizard(self):
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Batch Update Devices"),
+            "res_model": "pinout.device.batch.update.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_device_ids": [(6, 0, self.ids)],
+                "active_model": self._name,
+                "active_ids": self.ids,
+            },
         }
