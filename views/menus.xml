@@ -1,3 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <menuitem
+        id="pinout_menu_root"
+        name="Pinout"
+        sequence="70"
+        groups="pinout_device_registry.group_pinout_device_user"
+    />
+
+    <menuitem
+        id="pinout_device_registry_menu_root"
+        name="Device Registry"
+        parent="pinout_menu_root"
+        sequence="10"
+        groups="pinout_device_registry.group_pinout_device_user"
+    />
+
+    <menuitem
+        id="pinout_device_menu"
+        name="Devices"
+        parent="pinout_device_registry_menu_root"
+        action="pinout_device_action"
+        sequence="10"
+        groups="pinout_device_registry.group_pinout_device_user"
+    />
+
+    <menuitem
+        id="pinout_device_bundle_menu"
+        name="Bundles"
+        parent="pinout_device_registry_menu_root"
+        action="pinout_device_bundle_action"
+        sequence="20"
+        groups="pinout_device_registry.group_pinout_device_user"
+    />
+
+    <menuitem
+        id="pinout_device_registry_configuration_menu"
+        name="Configuration"
+        parent="pinout_device_registry_menu_root"
+        sequence="90"
+        groups="pinout_device_registry.group_pinout_device_manager"
+    />
+
+    <menuitem
+        id="pinout_device_type_menu"
+        name="Device Types"
+        parent="pinout_device_registry_configuration_menu"
+        action="pinout_device_type_action"
+        sequence="10"
+        groups="pinout_device_registry.group_pinout_device_manager"
+    />
+
+    <menuitem
+        id="pinout_attribute_variant_code_menu"
+        name="Attribute Variant Codes"
+        parent="pinout_device_registry_configuration_menu"
+        action="product_attribute_value_action"
+        sequence="20"
+        groups="pinout_device_registry.group_pinout_device_manager"
+    />
 </odoo>
