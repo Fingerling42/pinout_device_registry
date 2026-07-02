@@ -12,6 +12,11 @@ class PinoutDeviceType(models.Model):
         "pinout.device.type.attribute.line",
         "device_type_id",
     )
+    allowed_product_template_ids = fields.Many2many(
+        "product.template",
+        string="Allowed Product Forms",
+        help="Product templates/forms that can represent this device type across its lifecycle.",
+    )
     active = fields.Boolean(default=True)
 
     _sql_constraints = [

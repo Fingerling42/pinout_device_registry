@@ -28,6 +28,13 @@
                         </group>
                     </group>
                     <notebook>
+                        <page string="Product Forms" name="product_forms">
+                            <field
+                                name="allowed_product_template_ids"
+                                widget="many2many_tags"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            />
+                        </page>
                         <page string="Attribute Lines">
                             <field name="attribute_line_ids">
                                 <tree editable="bottom">

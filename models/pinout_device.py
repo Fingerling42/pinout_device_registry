@@ -23,6 +23,11 @@ class PinoutDevice(models.Model):
         required=True,
         tracking=True,
     )
+    allowed_product_template_ids = fields.Many2many(
+        "product.template",
+        related="device_type_id.allowed_product_template_ids",
+        readonly=True,
+    )
     mac = fields.Char(
         tracking=True,
         help="Human-readable MAC address if known. Not unique.",
@@ -156,6 +161,20 @@ class PinoutDevice(models.Model):
                 raise ValidationError(
                     _(
                         "Final Lot / Serial product must match Current Product / Current Form."
+                    )
+                )
+
+    @api.constrains("device_type_id", "current_product_id")
+    def _check_current_product_allowed_for_device_type(self):
+        for device in self.filtered("current_product_id"):
+            allowed_templates = device.device_type_id.allowed_product_template_ids
+            if (
+                allowed_templates
+                and device.current_product_id.product_tmpl_id not in allowed_templates
+            ):
+                raise ValidationError(
+                    _(
+                        "Current Product / Current Form is not allowed for this Device Type."
                     )
                 )
 
@@ -299,12 +318,61 @@ class PinoutDevice(models.Model):
         ):
             self.final_lot_id = False
 
+        return {"domain": {"final_lot_id": self._get_final_lot_domain()}}
+
+    @api.onchange("device_type_id")
+    def _onchange_device_type_id(self):
+        allowed_templates = self.device_type_id.allowed_product_template_ids
+        if (
+            self.current_product_id
+            and allowed_templates
+            and self.current_product_id.product_tmpl_id not in allowed_templates
+        ):
+            self.current_product_id = False
+            self.final_lot_id = False
+        return {"domain": {"current_product_id": self._get_current_product_domain()}}
+
+    @api.onchange("current_product_id")
+    def _onchange_current_product_id(self):
+        result = {
+            "domain": {
+                "current_product_id": self._get_current_product_domain(),
+                "final_lot_id": self._get_final_lot_domain(),
+            }
+        }
+        allowed_templates = self.device_type_id.allowed_product_template_ids
+        if (
+            self.current_product_id
+            and allowed_templates
+            and self.current_product_id.product_tmpl_id not in allowed_templates
+        ):
+            self.current_product_id = False
+            self.final_lot_id = False
+            return {
+                "warning": {
+                    "title": _("Product Not Allowed"),
+                    "message": _(
+                        "Current Product / Current Form is not allowed for this Device Type."
+                    ),
+                },
+                **result,
+            }
+        return result
+
+    def _get_current_product_domain(self):
+        domain = []
+        allowed_templates = self.device_type_id.allowed_product_template_ids
+        if allowed_templates:
+            domain.append(("product_tmpl_id", "in", allowed_templates.ids))
+        return domain
+
+    def _get_final_lot_domain(self):
         domain = []
         if self.device_uid:
             domain.append(("name", "=", self.device_uid))
         if self.current_product_id:
             domain.append(("product_id", "=", self.current_product_id.id))
-        return {"domain": {"final_lot_id": domain}}
+        return domain
 
     def action_open_final_lot(self):
         self.ensure_one()
