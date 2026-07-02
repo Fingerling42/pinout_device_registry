@@ -1,5 +1,5 @@
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import ValidationError
 
 
 class ProductAttributeValue(models.Model):
@@ -14,12 +14,10 @@ class ProductAttributeValue(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             self._normalize_variant_code_values(vals)
-            self._check_variant_code_write_access(vals)
         return super().create(vals_list)
 
     def write(self, vals):
         self._normalize_variant_code_values(vals)
-        self._check_variant_code_write_access(vals)
         return super().write(vals)
 
     @api.constrains("attribute_id", "variant_code")
@@ -58,27 +56,3 @@ class ProductAttributeValue(models.Model):
             return False
         normalized_code = str(variant_code).strip().upper()
         return normalized_code or False
-
-    @api.model
-    def _check_variant_code_write_access(self, vals):
-        if self.env.su or self.env.user.has_group("base.group_system"):
-            return
-
-        is_device_manager = self.env.user.has_group(
-            "pinout_device_registry.group_pinout_device_manager"
-        )
-        if "variant_code" in vals and not is_device_manager:
-            raise AccessError(
-                _("Only Device Registry Managers can edit Variant Codes.")
-            )
-
-        if not is_device_manager:
-            return
-
-        extra_fields = set(vals) - {"variant_code"}
-        if extra_fields:
-            raise AccessError(
-                _(
-                    "Device Registry Managers can only edit Variant Code on attribute values."
-                )
-            )

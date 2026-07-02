@@ -79,6 +79,6 @@
         <field name="code">
 action = records.action_open_batch_update_wizard()
         </field>
-        <field name="groups_id" eval="[(4, ref('pinout_device_registry.group_pinout_device_user'))]"/>
+        <field name="groups_id" eval="[(4, ref('base.group_user'))]"/>
     </record>
 </odoo>

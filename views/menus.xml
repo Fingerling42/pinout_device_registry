@@ -4,7 +4,6 @@
         id="pinout_menu_root"
         name="Pinout"
         sequence="70"
-        groups="pinout_device_registry.group_pinout_device_user"
     />
 
     <menuitem
@@ -12,7 +11,6 @@
         name="Device Registry"
         parent="pinout_menu_root"
         sequence="10"
-        groups="pinout_device_registry.group_pinout_device_user"
     />
 
     <menuitem
@@ -21,7 +19,6 @@
         parent="pinout_device_registry_menu_root"
         action="pinout_device_action"
         sequence="10"
-        groups="pinout_device_registry.group_pinout_device_user"
     />
 
     <menuitem
@@ -30,7 +27,6 @@
         parent="pinout_device_registry_menu_root"
         action="pinout_device_bundle_action"
         sequence="20"
-        groups="pinout_device_registry.group_pinout_device_user"
     />
 
     <menuitem
@@ -38,7 +34,6 @@
         name="Configuration"
         parent="pinout_device_registry_menu_root"
         sequence="90"
-        groups="pinout_device_registry.group_pinout_device_manager"
     />
 
     <menuitem
@@ -47,7 +42,6 @@
         parent="pinout_device_registry_configuration_menu"
         action="pinout_device_type_action"
         sequence="10"
-        groups="pinout_device_registry.group_pinout_device_manager"
     />
 
     <menuitem
@@ -56,6 +50,5 @@
         parent="pinout_device_registry_configuration_menu"
         action="product_attribute_value_action"
         sequence="20"
-        groups="pinout_device_registry.group_pinout_device_manager"
     />
 </odoo>
