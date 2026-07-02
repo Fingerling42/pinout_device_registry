@@ -1,3 +1,144 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="pinout_device_view_tree" model="ir.ui.view">
+        <field name="name">pinout.device.view.tree</field>
+        <field name="model">pinout.device</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="device_uid"/>
+                <field name="device_type_id"/>
+                <field name="current_product_id"/>
+                <field name="state"/>
+                <field name="quality_status"/>
+                <field name="location_id"/>
+                <field name="physical_location_note"/>
+                <field name="temp_mark"/>
+                <field name="final_lot_id"/>
+                <field name="mac" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="pinout_device_view_form" model="ir.ui.view">
+        <field name="name">pinout.device.view.form</field>
+        <field name="model">pinout.device</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button
+                        name="action_open_final_lot"
+                        string="Open Final Lot"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not final_lot_id"
+                    />
+                    <field
+                        name="state"
+                        widget="statusbar"
+                        statusbar_visible="wip,rework,ready_for_packaging,ready_for_sale,reserved,sold,returned,scrapped"
+                    />
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="device_uid"/>
+                        <h1>
+                            <field name="device_uid" placeholder="Device UID"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Identity">
+                            <field name="device_type_id"/>
+                            <field name="mac"/>
+                            <field name="temp_mark"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                        <group string="Current State">
+                            <field name="current_product_id"/>
+                            <field name="quality_status"/>
+                            <field name="location_id"/>
+                            <field name="physical_location_note"/>
+                        </group>
+                    </group>
+                    <group string="Final Serial">
+                        <group>
+                            <field name="final_lot_id"/>
+                            <field name="final_serial_name" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Robonomics" name="robonomics">
+                            <group>
+                                <field name="robonomics_device_address"/>
+                                <field name="subscription_owner_address"/>
+                            </group>
+                            <field name="robonomics_notes" nolabel="1"/>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids" groups="base.group_user"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="pinout_device_view_search" model="ir.ui.view">
+        <field name="name">pinout.device.view.search</field>
+        <field name="model">pinout.device</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="device_uid"/>
+                <field name="device_type_id"/>
+                <field name="mac"/>
+                <field name="temp_mark"/>
+                <field name="current_product_id"/>
+                <field name="final_lot_id"/>
+                <filter string="Active" name="active" domain="[('active', '=', True)]"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]" context="{'active_test': False}"/>
+                <separator/>
+                <filter string="WIP" name="state_wip" domain="[('state', '=', 'wip')]"/>
+                <filter string="Ready for Packaging" name="state_ready_for_packaging" domain="[('state', '=', 'ready_for_packaging')]"/>
+                <filter string="Ready for Sale" name="state_ready_for_sale" domain="[('state', '=', 'ready_for_sale')]"/>
+                <filter string="Reserved" name="state_reserved" domain="[('state', '=', 'reserved')]"/>
+                <filter string="Sold" name="state_sold" domain="[('state', '=', 'sold')]"/>
+                <filter string="Returned" name="state_returned" domain="[('state', '=', 'returned')]"/>
+                <filter string="Rework" name="state_rework" domain="[('state', '=', 'rework')]"/>
+                <filter string="Scrapped" name="state_scrapped" domain="[('state', '=', 'scrapped')]"/>
+                <separator/>
+                <filter string="Quality: Unknown" name="quality_unknown" domain="[('quality_status', '=', 'unknown')]"/>
+                <filter string="Quality: OK" name="quality_ok" domain="[('quality_status', '=', 'ok')]"/>
+                <filter string="Quality: Needs Test" name="quality_needs_test" domain="[('quality_status', '=', 'needs_test')]"/>
+                <filter string="Quality: Failed" name="quality_failed" domain="[('quality_status', '=', 'failed')]"/>
+                <separator/>
+                <filter string="Has Final Lot" name="has_final_lot" domain="[('final_lot_id', '!=', False)]"/>
+                <filter string="Without Final Lot" name="without_final_lot" domain="[('final_lot_id', '=', False)]"/>
+                <filter string="Has Robonomics Address" name="has_robonomics_address" domain="[('robonomics_device_address', '!=', False)]"/>
+                <filter string="Without Robonomics Address" name="without_robonomics_address" domain="[('robonomics_device_address', '=', False)]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Device Type" name="group_by_device_type" context="{'group_by': 'device_type_id'}"/>
+                    <filter string="Current Product" name="group_by_current_product" context="{'group_by': 'current_product_id'}"/>
+                    <filter string="State" name="group_by_state" context="{'group_by': 'state'}"/>
+                    <filter string="Quality Status" name="group_by_quality_status" context="{'group_by': 'quality_status'}"/>
+                    <filter string="Odoo Location" name="group_by_location" context="{'group_by': 'location_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="pinout_device_action" model="ir.actions.act_window">
+        <field name="name">Devices</field>
+        <field name="res_model">pinout.device</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="pinout_device_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a device
+            </p>
+        </field>
+    </record>
 </odoo>

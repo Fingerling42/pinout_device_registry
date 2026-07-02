@@ -1,4 +1,6 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_pinout_device_user,pinout.device.user,model_pinout_device,pinout_device_registry.group_pinout_device_user,1,1,1,0
+access_pinout_device_manager,pinout.device.manager,model_pinout_device,pinout_device_registry.group_pinout_device_manager,1,1,1,1
 access_pinout_device_type_user,pinout.device.type.user,model_pinout_device_type,pinout_device_registry.group_pinout_device_user,1,0,0,0
 access_pinout_device_type_manager,pinout.device.type.manager,model_pinout_device_type,pinout_device_registry.group_pinout_device_manager,1,1,1,1
 access_pinout_device_type_attribute_line_user,pinout.device.type.attribute.line.user,model_pinout_device_type_attribute_line,pinout_device_registry.group_pinout_device_user,1,0,0,0

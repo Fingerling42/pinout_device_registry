@@ -1,4 +1,4 @@
-from odoo import api, fields, models, _
+from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
 
@@ -33,8 +33,10 @@ class ProductAttributeValue(models.Model):
                     ("variant_code", "!=", False),
                 ]
             ).filtered(
-                lambda duplicate: self._normalize_variant_code(duplicate.variant_code)
-                == normalized_code
+                lambda duplicate: (
+                    self._normalize_variant_code(duplicate.variant_code)
+                    == normalized_code
+                )
             )
             if duplicates:
                 raise ValidationError(
@@ -66,7 +68,9 @@ class ProductAttributeValue(models.Model):
             "pinout_device_registry.group_pinout_device_manager"
         )
         if "variant_code" in vals and not is_device_manager:
-            raise AccessError(_("Only Device Registry Managers can edit Variant Codes."))
+            raise AccessError(
+                _("Only Device Registry Managers can edit Variant Codes.")
+            )
 
         if not is_device_manager:
             return
