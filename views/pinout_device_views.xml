@@ -71,18 +71,31 @@
                     </div>
                     <group>
                         <group string="Identity">
-                            <field name="device_type_id"/>
+                            <field
+                                name="device_type_id"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            />
                             <field name="mac"/>
                             <field name="temp_mark"/>
-                            <field name="bundle_id"/>
+                            <field
+                                name="bundle_id"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            />
                             <field name="active" invisible="1"/>
                         </group>
                         <group string="Current State">
-                            <field name="current_product_id"/>
+                            <field
+                                name="current_product_id"
+                                context="{'pinout_device_product_search': True}"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            />
                             <field name="variant_summary" readonly="1"/>
                             <field name="state"/>
                             <field name="quality_status"/>
-                            <field name="location_id"/>
+                            <field
+                                name="location_id"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            />
                             <field name="physical_location_note"/>
                         </group>
                     </group>
@@ -91,6 +104,7 @@
                             <field
                                 name="final_lot_id"
                                 domain="[('name', '=', device_uid), ('product_id', '=', current_product_id)]"
+                                options="{'no_create': True, 'no_create_edit': True}"
                             />
                         </group>
                     </group>

@@ -57,7 +57,10 @@
                                 <tree>
                                     <field name="device_uid"/>
                                     <field name="device_type_id"/>
-                                    <field name="current_product_id"/>
+                                    <field
+                                        name="current_product_id"
+                                        context="{'pinout_device_product_search': True}"
+                                    />
                                     <field name="variant_summary"/>
                                     <field name="state"/>
                                     <field name="quality_status"/>

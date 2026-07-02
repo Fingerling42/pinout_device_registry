@@ -275,8 +275,6 @@ class PinoutDevice(models.Model):
 
     @api.onchange("final_lot_id")
     def _onchange_final_lot_id(self):
-        if self.final_lot_id:
-            self.current_product_id = self.final_lot_id.product_id
         if (
             self.final_lot_id
             and self.device_uid
