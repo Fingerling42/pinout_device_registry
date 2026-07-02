@@ -73,6 +73,20 @@ class PinoutDevice(models.Model):
         tracking=True,
         help="Human-readable physical place: ESD Box 3, Shelf A2, Ready Shelf, With Pavel, Returned Box, etc.",
     )
+    current_attribute_value_ids = fields.Many2many(
+        "product.attribute.value",
+        compute="_compute_current_attribute_values",
+        string="Current Attribute Values",
+        readonly=True,
+        store=True,
+    )
+    variant_summary = fields.Char(
+        compute="_compute_variant_summary",
+        string="Variant Summary",
+        readonly=True,
+        store=True,
+        help="Short readable variant summary generated from current product attributes and device type configuration, e.g. ORNG / ENJ.",
+    )
 
     final_lot_id = fields.Many2one(
         "stock.lot",
@@ -108,9 +122,48 @@ class PinoutDevice(models.Model):
             device.final_serial_name = device.final_lot_id.name
 
     @api.depends(
+        "current_product_id.product_template_attribute_value_ids",
+        "current_product_id.product_template_attribute_value_ids.product_attribute_value_id",
+    )
+    def _compute_current_attribute_values(self):
+        for device in self:
+            product_attribute_values = device.current_product_id.product_template_attribute_value_ids.product_attribute_value_id
+            device.current_attribute_value_ids = product_attribute_values
+
+    @api.depends(
+        "current_attribute_value_ids",
+        "current_attribute_value_ids.name",
+        "current_attribute_value_ids.variant_code",
+        "device_type_id.attribute_line_ids",
+        "device_type_id.attribute_line_ids.attribute_id",
+        "device_type_id.attribute_line_ids.sequence",
+        "device_type_id.attribute_line_ids.use_variant_code",
+    )
+    def _compute_variant_summary(self):
+        for device in self:
+            values_by_attribute = {
+                value.attribute_id.id: value
+                for value in device.current_attribute_value_ids
+                if value.attribute_id
+            }
+            summary_parts = []
+            for line in device.device_type_id.attribute_line_ids.sorted(
+                key=lambda item: (item.sequence, item.id)
+            ):
+                product_attribute_value = values_by_attribute.get(line.attribute_id.id)
+                if not product_attribute_value:
+                    continue
+                if line.use_variant_code and product_attribute_value.variant_code:
+                    summary_parts.append(product_attribute_value.variant_code)
+                else:
+                    summary_parts.append(product_attribute_value.name)
+            device.variant_summary = " / ".join(summary_parts)
+
+    @api.depends(
         "device_uid",
         "device_type_id.name",
         "current_product_id.display_name",
+        "variant_summary",
     )
     def _compute_display_name(self):
         for device in self:
@@ -118,6 +171,7 @@ class PinoutDevice(models.Model):
                 device.device_uid,
                 device.device_type_id.name,
                 device.current_product_id.display_name,
+                device.variant_summary,
             ]
             device.display_name = " — ".join(part for part in name_parts if part)
 

@@ -8,6 +8,7 @@
                 <field name="device_uid"/>
                 <field name="device_type_id"/>
                 <field name="current_product_id"/>
+                <field name="variant_summary"/>
                 <field name="state"/>
                 <field name="quality_status"/>
                 <field name="location_id"/>
@@ -54,10 +55,19 @@
                         </group>
                         <group string="Current State">
                             <field name="current_product_id"/>
+                            <field name="variant_summary" readonly="1"/>
                             <field name="quality_status"/>
                             <field name="location_id"/>
                             <field name="physical_location_note"/>
                         </group>
+                    </group>
+                    <group string="Current Attributes">
+                        <field
+                            name="current_attribute_value_ids"
+                            widget="many2many_tags"
+                            readonly="1"
+                            nolabel="1"
+                        />
                     </group>
                     <group string="Final Serial">
                         <group>
@@ -97,6 +107,7 @@
                 <field name="mac"/>
                 <field name="temp_mark"/>
                 <field name="current_product_id"/>
+                <field name="variant_summary"/>
                 <field name="final_lot_id"/>
                 <filter string="Active" name="active" domain="[('active', '=', True)]"/>
                 <filter string="Archived" name="inactive" domain="[('active', '=', False)]" context="{'active_test': False}"/>
