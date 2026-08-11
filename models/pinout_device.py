@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import ClassVar
 
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
@@ -9,7 +10,7 @@ from .pinout_device_selection import DEVICE_STATE_SELECTION, QUALITY_STATUS_SELE
 class PinoutDevice(models.Model):
     _name = "pinout.device"
     _description = "Device Registry"
-    _inherit = ["mail.thread", "mail.activity.mixin"]
+    _inherit: ClassVar[list[str]] = ["mail.thread", "mail.activity.mixin"]
     _order = "device_uid, id"
 
     device_uid = fields.Char(
@@ -129,7 +130,7 @@ class PinoutDevice(models.Model):
     notes = fields.Text()
     active = fields.Boolean(default=True)
 
-    _sql_constraints = [
+    _sql_constraints: ClassVar[list[tuple[str, str, str]]] = [
         (
             "device_uid_unique",
             "unique(device_uid)",
@@ -148,7 +149,10 @@ class PinoutDevice(models.Model):
             if device.final_lot_id.name != device.device_uid:
                 raise ValidationError(
                     _(
-                        "Final Lot / Serial must match Device UID for device %(device)s.",
+                        "Final Lot / Serial %(lot)s does not match Device UID %(device)s. "
+                        "Restore the matching Device UID or manually clear Final Lot / "
+                        "Serial before saving.",
+                        lot=device.final_lot_id.name,
                         device=device.device_uid,
                     )
                 )
@@ -158,7 +162,13 @@ class PinoutDevice(models.Model):
             ):
                 raise ValidationError(
                     _(
-                        "Final Lot / Serial product must match Current Product / Current Form."
+                        "Final Lot / Serial %(lot)s belongs to %(lot_product)s, but "
+                        "Current Product / Current Form is %(current_product)s. "
+                        "Restore the product linked to the lot or manually clear "
+                        "Final Lot / Serial before saving.",
+                        lot=device.final_lot_id.name,
+                        lot_product=device.final_lot_id.product_id.display_name,
+                        current_product=device.current_product_id.display_name,
                     )
                 )
 
@@ -292,43 +302,36 @@ class PinoutDevice(models.Model):
 
     @api.onchange("final_lot_id")
     def _onchange_final_lot_id(self):
-        if (
-            self.final_lot_id
-            and self.device_uid
-            and self.final_lot_id.name != self.device_uid
-        ):
-            return {
-                "warning": {
-                    "title": _("Final Lot Mismatch"),
-                    "message": _(
-                        "Final lot serial does not match Device UID. This may be intentional, but please verify."
-                    ),
-                }
-            }
-        return None
+        warning = self._get_final_lot_mismatch_warning()
+        return {"warning": warning} if warning else None
 
     @api.onchange("device_uid", "current_product_id")
     def _onchange_final_lot_domain(self):
-        if (
-            self.final_lot_id
-            and self.current_product_id
-            and self.final_lot_id.product_id != self.current_product_id
-        ):
-            self.final_lot_id = False
-
-        return {"domain": {"final_lot_id": self._get_final_lot_domain()}}
+        result = {"domain": {"final_lot_id": self._get_final_lot_domain()}}
+        warning = self._get_final_lot_mismatch_warning()
+        if warning:
+            result["warning"] = warning
+        return result
 
     @api.onchange("device_type_id")
     def _onchange_device_type_id(self):
+        result = {"domain": {"current_product_id": self._get_current_product_domain()}}
         allowed_templates = self.device_type_id.allowed_product_template_ids
         if (
             self.current_product_id
             and allowed_templates
             and self.current_product_id.product_tmpl_id not in allowed_templates
         ):
-            self.current_product_id = False
-            self.final_lot_id = False
-        return {"domain": {"current_product_id": self._get_current_product_domain()}}
+            result["warning"] = {
+                "title": _("Product Not Allowed"),
+                "message": _(
+                    "Current Product / Current Form remains selected because dependent "
+                    "identity fields must not be cleared automatically. Choose a compatible "
+                    "Device Type or Product before saving. Clear Final Lot / Serial manually "
+                    "if the physical form really needs to change."
+                ),
+            }
+        return result
 
     @api.onchange("current_product_id")
     def _onchange_current_product_id(self):
@@ -344,18 +347,52 @@ class PinoutDevice(models.Model):
             and allowed_templates
             and self.current_product_id.product_tmpl_id not in allowed_templates
         ):
-            self.current_product_id = False
-            self.final_lot_id = False
             return {
                 "warning": {
                     "title": _("Product Not Allowed"),
                     "message": _(
-                        "Current Product / Current Form is not allowed for this Device Type."
+                        "Current Product / Current Form remains selected because dependent "
+                        "identity fields must not be cleared automatically. Choose a product "
+                        "allowed for this Device Type before saving. Clear Final Lot / Serial "
+                        "manually if the physical form really needs to change."
                     ),
                 },
                 **result,
             }
         return result
+
+    def _get_final_lot_mismatch_warning(self):
+        self.ensure_one()
+        if not self.final_lot_id:
+            return False
+        if self.device_uid and self.final_lot_id.name != self.device_uid:
+            return {
+                "title": _("Final Lot Mismatch"),
+                "message": _(
+                    "Final Lot / Serial %(lot)s remains linked, but it does not match "
+                    "Device UID %(device)s. Restore the matching UID or clear Final Lot / "
+                    "Serial manually before saving.",
+                    lot=self.final_lot_id.name,
+                    device=self.device_uid,
+                ),
+            }
+        if (
+            self.current_product_id
+            and self.final_lot_id.product_id != self.current_product_id
+        ):
+            return {
+                "title": _("Final Lot Product Mismatch"),
+                "message": _(
+                    "Final Lot / Serial %(lot)s remains linked to %(lot_product)s, but "
+                    "Current Product / Current Form is %(current_product)s. Restore the "
+                    "product linked to the lot or clear Final Lot / Serial manually before "
+                    "saving.",
+                    lot=self.final_lot_id.name,
+                    lot_product=self.final_lot_id.product_id.display_name,
+                    current_product=self.current_product_id.display_name,
+                ),
+            }
+        return False
 
     def _get_current_product_domain(self):
         domain = []
