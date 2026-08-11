@@ -67,7 +67,7 @@ class TestPinoutDeviceFinalLot(TransactionCase):
     def test_final_lot_can_be_cleared_explicitly(self):
         device_form = Form(self.device)
         device_form.current_product_id = self.product_b
-        device_form.final_lot_id = False
+        device_form.final_lot_id = self.env["stock.lot"]
         updated_device = device_form.save()
 
         self.assertEqual(updated_device.current_product_id, self.product_b)
