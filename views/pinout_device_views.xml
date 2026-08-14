@@ -5,19 +5,21 @@
         <field name="model">pinout.device</field>
         <field name="arch" type="xml">
             <tree>
-                <field name="device_uid"/>
-                <field name="device_type_id"/>
-                <field name="current_product_id"/>
-                <field name="variant_summary"/>
-                <field name="state"/>
-                <field name="quality_status"/>
-                <field name="location_id"/>
-                <field name="physical_location_note"/>
-                <field name="temp_mark"/>
-                <field name="final_lot_id"/>
-                <field name="bundle_id"/>
-                <field name="last_customer_id"/>
+                <field name="device_uid" optional="show"/>
+                <field name="device_type_id" optional="show"/>
+                <field name="current_product_id" optional="show"/>
+                <field name="variant_summary" optional="show"/>
+                <field name="state" optional="show"/>
+                <field name="quality_status" optional="show"/>
+                <field name="location_id" optional="show"/>
+                <field name="physical_location_note" optional="show"/>
+                <field name="temp_mark" optional="show"/>
+                <field name="final_lot_id" optional="show"/>
+                <field name="bundle_id" optional="show"/>
+                <field name="last_customer_id" optional="show"/>
                 <field name="mac" optional="hide"/>
+                <field name="robonomics_device_address" optional="hide"/>
+                <field name="subscription_owner_address" optional="hide"/>
             </tree>
         </field>
     </record>
@@ -183,6 +185,7 @@
                     <filter string="Quality Status" name="group_by_quality_status" context="{'group_by': 'quality_status'}"/>
                     <filter string="Odoo Location" name="group_by_location" context="{'group_by': 'location_id'}"/>
                     <filter string="Bundle" name="group_by_bundle" context="{'group_by': 'bundle_id'}"/>
+                    <filter string="Last Customer" name="group_by_last_customer" context="{'group_by': 'last_customer_id'}"/>
                 </group>
             </search>
         </field>
