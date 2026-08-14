@@ -1,5 +1,7 @@
 from collections import defaultdict
+from typing import ClassVar
 
+from markupsafe import Markup, escape
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools import float_compare
@@ -8,7 +10,7 @@ from odoo.tools import float_compare
 class PinoutDeviceBundle(models.Model):
     _name = "pinout.device.bundle"
     _description = "Pinout Device Bundle"
-    _inherit = ["mail.thread", "mail.activity.mixin"]
+    _inherit: ClassVar[list[str]] = ["mail.thread", "mail.activity.mixin"]
     _order = "name, id"
 
     name = fields.Char(required=True, index=True)
@@ -38,10 +40,11 @@ class PinoutDeviceBundle(models.Model):
         tracking=True,
         help="Odoo product variant used as the physical kit/bundle. Its Kit BoM defines which device products can be attached.",
     )
-    expected_component_summary = fields.Text(
-        compute="_compute_expected_component_summary",
+    expected_component_checklist = fields.Html(
+        compute="_compute_expected_component_checklist",
         string="Expected Components",
         readonly=True,
+        sanitize=True,
     )
     device_ids = fields.One2many(
         "pinout.device",
@@ -77,10 +80,17 @@ class PinoutDeviceBundle(models.Model):
         for bundle in self:
             bundle.device_count = len(bundle.device_ids)
 
-    @api.depends("bundle_product_id")
-    def _compute_expected_component_summary(self):
+    @api.depends(
+        "bundle_product_id",
+        "device_ids",
+        "device_ids.current_product_id",
+        "device_ids.device_uid",
+    )
+    def _compute_expected_component_checklist(self):
         for bundle in self:
-            bundle.expected_component_summary = bundle._format_expected_components()
+            bundle.expected_component_checklist = (
+                bundle._format_expected_component_checklist()
+            )
 
     @api.depends("device_ids", "device_ids.final_lot_id")
     def _compute_bundle_sales_data(self):
@@ -222,30 +232,121 @@ class PinoutDeviceBundle(models.Model):
             quantities[line.product_id] += line_quantity
         return quantities
 
-    def _format_expected_components(self):
+    def _get_component_checklist_rows(self):
+        self.ensure_one()
+        expected_quantities = self._get_expected_component_quantities()
+        attached_devices_by_product = defaultdict(lambda: self.env["pinout.device"])
+        for device in self.device_ids.filtered("current_product_id"):
+            attached_devices_by_product[device.current_product_id] |= device
+
+        products = sorted(
+            set(expected_quantities) | set(attached_devices_by_product),
+            key=lambda product: product.display_name,
+        )
+        rows = []
+        for product in products:
+            expected_quantity = expected_quantities.get(product, 0.0)
+            attached_devices = attached_devices_by_product[product]
+            attached_quantity = float(len(attached_devices))
+            quantity_comparison = float_compare(
+                attached_quantity,
+                expected_quantity,
+                precision_rounding=product.uom_id.rounding,
+            )
+            if quantity_comparison < 0:
+                status = "missing"
+            elif quantity_comparison > 0:
+                status = "excess"
+            else:
+                status = "complete"
+            rows.append(
+                {
+                    "product": product,
+                    "expected_quantity": expected_quantity,
+                    "attached_quantity": attached_quantity,
+                    "attached_devices": attached_devices,
+                    "status": status,
+                }
+            )
+        return rows
+
+    def _format_expected_component_checklist(self):
         self.ensure_one()
         if not self.bundle_product_id:
             return False
 
-        expected_quantities = self._get_expected_component_quantities()
-        if not expected_quantities:
-            return _("No active Kit BoM found for this product variant.")
-
-        lines = []
-        for product, quantity in sorted(
-            expected_quantities.items(), key=lambda item: item[0].display_name
-        ):
-            lines.append(
-                _(
-                    "%(qty)s x %(product)s",
-                    qty=self._format_quantity(quantity),
-                    product=product.display_name,
-                )
+        rows = self._get_component_checklist_rows()
+        if not rows:
+            warning = Markup(
+                '<div class="alert alert-warning mb-0" role="alert">%s</div>'
             )
-        return "\n".join(lines)
+            return warning % escape(
+                _("No active Kit BoM found for this product variant.")
+            )
+
+        table_rows = Markup("").join(
+            self._format_component_checklist_row(row) for row in rows
+        )
+        return Markup(
+            '<div class="table-responsive">'
+            '<table class="table table-sm table-hover align-middle mb-0">'
+            "<thead><tr>"
+            '<th scope="col">%s</th>'
+            '<th scope="col" class="text-end">%s</th>'
+            '<th scope="col" class="text-end">%s</th>'
+            '<th scope="col">%s</th>'
+            '<th scope="col">%s</th>'
+            "</tr></thead>"
+            "<tbody>%s</tbody>"
+            "</table>"
+            "</div>"
+        ) % (
+            escape(_("Expected Product")),
+            escape(_("Expected Quantity")),
+            escape(_("Attached Quantity")),
+            escape(_("Status")),
+            escape(_("Attached Device UID")),
+            table_rows,
+        )
+
+    def _format_component_checklist_row(self, row):
+        status_labels = {
+            "missing": (_("Missing"), "text-bg-warning"),
+            "complete": (_("Complete"), "text-bg-success"),
+            "excess": (_("Excess"), "text-bg-danger"),
+        }
+        status_label, status_class = status_labels[row["status"]]
+        status_badge = Markup('<span class="badge %s">%s</span>') % (
+            status_class,
+            escape(status_label),
+        )
+        device_uids = Markup("<br>").join(
+            escape(device.device_uid)
+            for device in row["attached_devices"].sorted("device_uid")
+        )
+        if not device_uids:
+            device_uids = Markup('<span class="text-muted">%s</span>') % escape(
+                _("None")
+            )
+
+        return Markup(
+            "<tr>"
+            "<td>%s</td>"
+            '<td class="text-end">%s</td>'
+            '<td class="text-end">%s</td>'
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "</tr>"
+        ) % (
+            escape(row["product"].display_name),
+            escape(self._format_quantity(row["expected_quantity"])),
+            escape(self._format_quantity(row["attached_quantity"])),
+            status_badge,
+            device_uids,
+        )
 
     def _format_quantity(self, quantity):
-        return ("%s" % quantity).rstrip("0").rstrip(".")
+        return f"{quantity}".rstrip("0").rstrip(".")
 
     def action_open_devices(self):
         self.ensure_one()

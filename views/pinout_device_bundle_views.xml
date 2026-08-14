@@ -57,14 +57,17 @@
                             />
                             <field name="active" invisible="1"/>
                         </group>
-                        <group string="Expected Components">
-                            <field
-                                name="expected_component_summary"
-                                nolabel="1"
-                                readonly="1"
-                            />
-                        </group>
                     </group>
+                    <separator
+                        string="Expected Components"
+                        invisible="not bundle_product_id"
+                    />
+                    <field
+                        name="expected_component_checklist"
+                        nolabel="1"
+                        readonly="1"
+                        invisible="not bundle_product_id"
+                    />
                     <notebook>
                         <page string="Devices" name="devices">
                             <field name="device_ids" readonly="1">
