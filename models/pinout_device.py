@@ -290,6 +290,15 @@ class PinoutDevice(models.Model):
         if not devices:
             return
 
+        devices.invalidate_recordset(
+            [
+                "last_customer_id",
+                "last_sale_order_id",
+                "last_delivery_id",
+                "last_order_reference",
+            ]
+        )
+
         devices_by_lot = defaultdict(lambda: self.env["pinout.device"])
         for device in devices:
             devices_by_lot[device.final_lot_id.id] |= device
@@ -323,6 +332,9 @@ class PinoutDevice(models.Model):
                 device.with_context(tracking_disable=True).state = new_state
                 device._post_automatic_state_message(new_state, move_line.move_id)
 
+        affected_bundles.invalidate_recordset(
+            ["customer_id", "sale_order_id", "delivery_id"]
+        )
         affected_bundles._sync_sold_state_from_devices()
 
     @api.model

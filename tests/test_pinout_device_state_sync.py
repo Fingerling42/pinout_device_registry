@@ -133,6 +133,9 @@ class TestPinoutDeviceStateSync(TransactionCase):
         return picking
 
     def test_delivery_return_resale_and_scrap_sync_device_state(self):
+        self.devices.mapped("last_delivery_id")
+        self.bundle.mapped("delivery_id")
+
         delivery = self._complete_picking(
             self.outgoing_type, self.stock_location, self.customer_location
         )
