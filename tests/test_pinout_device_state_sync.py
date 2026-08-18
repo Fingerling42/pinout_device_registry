@@ -140,6 +140,11 @@ class TestPinoutDeviceStateSync(TransactionCase):
             self.outgoing_type, self.stock_location, self.customer_location
         )
 
+        self.assertEqual(delivery.state, "done")
+        self.assertEqual(
+            set(delivery.move_line_ids.lot_id.ids),
+            set(self.lots.ids),
+        )
         self.assertEqual(set(self.devices.mapped("state")), {"sold"})
         self.assertEqual(self.bundle.state, "sold")
         self.assertEqual(self.bundle.delivery_id, delivery)

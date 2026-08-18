@@ -13,9 +13,4 @@ class StockMove(models.Model):
                 [("final_lot_id", "in", lots.ids)]
             )
             devices._sync_state_from_stock_moves()
-            bundles = devices.bundle_id
-            bundles.invalidate_recordset(
-                ["customer_id", "sale_order_id", "delivery_id"]
-            )
-            bundles._sync_sold_state_from_pickings(done_moves.picking_id)
         return result

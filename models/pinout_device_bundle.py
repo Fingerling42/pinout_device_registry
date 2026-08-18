@@ -117,7 +117,8 @@ class PinoutDeviceBundle(models.Model):
             return first_value
         return False
 
-    def _sync_sold_state_from_pickings(self, pickings):
+    def _sync_sold_state_from_move_lines(self, delivered_move_lines):
+        pickings = delivered_move_lines.picking_id
         for bundle in self:
             devices = bundle.device_ids
             if (
@@ -131,12 +132,8 @@ class PinoutDeviceBundle(models.Model):
             device_lots = devices.final_lot_id
             delivery = False
             for picking in pickings:
-                delivered_lots = picking.move_line_ids.filtered(
-                    lambda line: (
-                        line.state == "done"
-                        and line.quantity > 0
-                        and line.location_dest_id.usage == "customer"
-                    )
+                delivered_lots = delivered_move_lines.filtered_domain(
+                    [("picking_id", "=", picking.id)]
                 ).lot_id
                 if not (device_lots - delivered_lots):
                     delivery = picking
