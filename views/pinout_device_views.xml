@@ -89,7 +89,6 @@
                         <group string="Current State">
                             <field
                                 name="current_product_id"
-                                context="{'pinout_device_product_search': True}"
                                 domain="[('product_tmpl_id', 'in', allowed_product_template_ids)] if allowed_product_template_ids else []"
                                 options="{'no_create': True, 'no_create_edit': True}"
                             />

@@ -34,7 +34,6 @@
                                 name="current_product_id"
                                 invisible="not update_current_product"
                                 required="update_current_product"
-                                context="{'pinout_device_product_search': True}"
                                 options="{'no_create': True, 'no_create_edit': True}"
                             />
                             <field name="update_state"/>
