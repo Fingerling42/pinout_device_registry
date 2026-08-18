@@ -5,14 +5,14 @@
         <field name="model">pinout.device.bundle</field>
         <field name="arch" type="xml">
             <tree>
-                <field name="name"/>
-                <field name="bundle_product_id"/>
-                <field name="bundle_type"/>
-                <field name="state"/>
-                <field name="device_count"/>
-                <field name="customer_id"/>
-                <field name="sale_order_id"/>
-                <field name="delivery_id"/>
+                <field name="name" optional="show"/>
+                <field name="bundle_product_id" optional="show"/>
+                <field name="bundle_type" optional="show"/>
+                <field name="state" optional="show"/>
+                <field name="device_count" optional="show"/>
+                <field name="customer_id" optional="show"/>
+                <field name="sale_order_id" optional="show"/>
+                <field name="delivery_id" optional="show"/>
             </tree>
         </field>
     </record>
