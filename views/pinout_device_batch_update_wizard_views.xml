@@ -7,8 +7,26 @@
             <form>
                 <sheet>
                     <group>
-                        <field name="device_ids" widget="many2many_tags"/>
+                        <field name="device_count" readonly="1"/>
                     </group>
+                    <div class="overflow-auto mb-4" style="max-height: 24rem;">
+                        <field
+                            name="device_ids"
+                            nolabel="1"
+                            options="{'create': False}"
+                        >
+                            <tree string="Selected Devices" no_open="1" limit="40">
+                                <control>
+                                    <create string="Add Devices"/>
+                                </control>
+                                <field name="device_uid"/>
+                                <field name="device_type_id"/>
+                                <field name="current_product_id"/>
+                                <field name="state"/>
+                                <field name="quality_status"/>
+                            </tree>
+                        </field>
+                    </div>
                     <group>
                         <group>
                             <field name="update_current_product"/>

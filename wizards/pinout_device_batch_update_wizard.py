@@ -15,8 +15,11 @@ class PinoutDeviceBatchUpdateWizard(models.TransientModel):
     device_ids = fields.Many2many(
         "pinout.device",
         required=True,
-        readonly=True,
         default=lambda self: self._default_device_ids(),
+    )
+    device_count = fields.Integer(
+        compute="_compute_device_count",
+        string="Selected Devices",
     )
 
     update_current_product = fields.Boolean()
@@ -42,6 +45,11 @@ class PinoutDeviceBatchUpdateWizard(models.TransientModel):
         if self.env.context.get("active_model") != "pinout.device":
             return False
         return [(6, 0, self.env.context.get("active_ids", []))]
+
+    @api.depends("device_ids")
+    def _compute_device_count(self):
+        for wizard in self:
+            wizard.device_count = len(wizard.device_ids)
 
     def action_apply(self):
         self.ensure_one()
