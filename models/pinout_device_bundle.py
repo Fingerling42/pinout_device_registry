@@ -117,6 +117,30 @@ class PinoutDeviceBundle(models.Model):
             return first_value
         return False
 
+    def _sync_sold_state_from_devices(self):
+        for bundle in self:
+            devices = bundle.device_ids
+            delivery = bundle._get_shared_device_value(devices, "last_delivery_id")
+            if (
+                bundle.state in {"sold", "cancelled"}
+                or not devices
+                or any(device.state != "sold" for device in devices)
+                or not delivery
+            ):
+                continue
+            bundle.with_context(tracking_disable=True).state = "sold"
+            delivery_link = Markup(
+                '<a href="#" data-oe-model="{}" data-oe-id="{}">{}</a>'
+            ).format(delivery._name, delivery.id, delivery.display_name)
+            bundle.message_post(
+                body=_(
+                    "Bundle state was automatically changed to Sold after all "
+                    "attached devices were delivered in %(delivery)s.",
+                    delivery=delivery_link,
+                ),
+                subtype_xmlid="mail.mt_note",
+            )
+
     @api.constrains("bundle_type", "bundle_product_id")
     def _check_dual_bundle_product(self):
         for bundle in self:

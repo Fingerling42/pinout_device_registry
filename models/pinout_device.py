@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import ClassVar
 
+from markupsafe import Markup
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
@@ -283,6 +284,76 @@ class PinoutDevice(models.Model):
                 device.last_customer_id = picking.partner_id
                 device.last_sale_order_id = sale_order
                 device.last_order_reference = last_order_reference
+
+    def _sync_state_from_stock_moves(self):
+        devices = self.filtered("final_lot_id")
+        if not devices:
+            return
+
+        devices_by_lot = defaultdict(lambda: self.env["pinout.device"])
+        for device in devices:
+            devices_by_lot[device.final_lot_id.id] |= device
+
+        move_lines = self.env["stock.move.line"].search(
+            [
+                ("lot_id", "in", list(devices_by_lot)),
+                ("state", "=", "done"),
+                ("quantity", ">", 0),
+            ],
+            order="date desc, id desc",
+        )
+        latest_event_by_lot = {}
+        for move_line in move_lines:
+            if move_line.lot_id.id in latest_event_by_lot:
+                continue
+            new_state = self._get_state_from_stock_move_line(move_line)
+            if new_state:
+                latest_event_by_lot[move_line.lot_id.id] = (new_state, move_line)
+
+        affected_bundles = self.env["pinout.device.bundle"]
+        for lot_id, lot_devices in devices_by_lot.items():
+            event = latest_event_by_lot.get(lot_id)
+            if not event:
+                continue
+            new_state, move_line = event
+            for device in lot_devices:
+                affected_bundles |= device.bundle_id
+                if device.state == new_state:
+                    continue
+                device.with_context(tracking_disable=True).state = new_state
+                device._post_automatic_state_message(new_state, move_line.move_id)
+
+        affected_bundles._sync_sold_state_from_devices()
+
+    @api.model
+    def _get_state_from_stock_move_line(self, move_line):
+        if move_line.location_dest_id.scrap_location:
+            return "scrapped"
+        if move_line.location_dest_id.usage == "customer":
+            return "sold"
+        if (
+            move_line.location_id.usage == "customer"
+            and move_line.location_dest_id.usage == "internal"
+        ):
+            return "returned"
+        return False
+
+    def _post_automatic_state_message(self, new_state, move):
+        self.ensure_one()
+        source = move.scrap_id or move.picking_id or move
+        source_link = Markup(
+            '<a href="#" data-oe-model="{}" data-oe-id="{}">{}</a>'
+        ).format(source._name, source.id, source.display_name)
+        state_label = dict(self._fields["state"].selection).get(new_state, new_state)
+        self.message_post(
+            body=_(
+                "Device state was automatically changed to %(state)s after "
+                "%(document)s was completed.",
+                state=state_label,
+                document=source_link,
+            ),
+            subtype_xmlid="mail.mt_note",
+        )
 
     @api.depends(
         "device_uid",
