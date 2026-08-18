@@ -319,23 +319,16 @@ class PinoutDevice(models.Model):
             if new_state:
                 latest_event_by_lot[move_line.lot_id.id] = (new_state, move_line)
 
-        affected_bundles = self.env["pinout.device.bundle"]
         for lot_id, lot_devices in devices_by_lot.items():
             event = latest_event_by_lot.get(lot_id)
             if not event:
                 continue
             new_state, move_line = event
             for device in lot_devices:
-                affected_bundles |= device.bundle_id
                 if device.state == new_state:
                     continue
                 device.with_context(tracking_disable=True).state = new_state
                 device._post_automatic_state_message(new_state, move_line.move_id)
-
-        affected_bundles.invalidate_recordset(
-            ["customer_id", "sale_order_id", "delivery_id"]
-        )
-        affected_bundles._sync_sold_state_from_devices()
 
     @api.model
     def _get_state_from_stock_move_line(self, move_line):

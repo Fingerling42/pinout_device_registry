@@ -117,17 +117,33 @@ class PinoutDeviceBundle(models.Model):
             return first_value
         return False
 
-    def _sync_sold_state_from_devices(self):
+    def _sync_sold_state_from_pickings(self, pickings):
         for bundle in self:
             devices = bundle.device_ids
-            delivery = bundle._get_shared_device_value(devices, "last_delivery_id")
             if (
                 bundle.state in {"sold", "cancelled"}
                 or not devices
                 or any(device.state != "sold" for device in devices)
-                or not delivery
+                or any(not device.final_lot_id for device in devices)
             ):
                 continue
+
+            device_lots = devices.final_lot_id
+            delivery = False
+            for picking in pickings:
+                delivered_lots = picking.move_line_ids.filtered(
+                    lambda line: (
+                        line.state == "done"
+                        and line.quantity > 0
+                        and line.location_dest_id.usage == "customer"
+                    )
+                ).lot_id
+                if not (device_lots - delivered_lots):
+                    delivery = picking
+                    break
+            if not delivery:
+                continue
+
             bundle.with_context(tracking_disable=True).state = "sold"
             delivery_link = Markup(
                 '<a href="#" data-oe-model="{}" data-oe-id="{}">{}</a>'
