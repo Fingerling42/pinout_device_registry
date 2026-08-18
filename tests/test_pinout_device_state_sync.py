@@ -120,6 +120,7 @@ class TestPinoutDeviceStateSync(TransactionCase):
                                 "product_id": product.id,
                                 "product_uom_id": product.uom_id.id,
                                 "quantity": 1,
+                                "picking_id": picking.id,
                                 "location_id": source.id,
                                 "location_dest_id": destination.id,
                                 "lot_id": device.final_lot_id.id,
