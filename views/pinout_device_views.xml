@@ -108,6 +108,7 @@
                                 name="final_lot_id"
                                 domain="[('name', '=', device_uid), ('product_id', '=', current_product_id)]"
                                 options="{'no_create': True, 'no_create_edit': True}"
+                                placeholder="Select serial matching Device UID"
                             />
                         </group>
                     </group>

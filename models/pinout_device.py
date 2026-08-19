@@ -25,6 +25,8 @@ class PinoutDevice(models.Model):
         help=(
             "Globally identifies one physical device across all Device Types. "
             "The same Device UID cannot be reused for another registry record. "
+            "For a finished retail unit, it must exactly match the Final Lot / "
+            "Serial number. "
             "Current batch: MAC without separators. Future batches: PCB serial."
         ),
     )
@@ -94,7 +96,12 @@ class PinoutDevice(models.Model):
         "stock.lot",
         string="Final Lot / Serial",
         tracking=True,
-        help="Final Odoo stock lot/serial when the device becomes a retail unit. Empty for WIP stages.",
+        help=(
+            "Final Odoo stock lot/serial when the device becomes a retail unit. "
+            "Only serials whose number exactly matches Device UID and whose Product "
+            "matches Current Product / Current Form are available. Empty for WIP "
+            "stages."
+        ),
     )
     final_serial_name = fields.Char(
         compute="_compute_final_serial_name",
