@@ -13,6 +13,10 @@ class PinoutDevice(models.Model):
     _description = "Device Registry"
     _inherit: ClassVar[list[str]] = ["mail.thread", "mail.activity.mixin"]
     _order = "device_uid, id"
+    _pairing_update_context: ClassVar[str] = "pinout_bundle_pairing_update"
+    _bundle_identity_fields: ClassVar[frozenset[str]] = frozenset(
+        {"device_uid", "device_type_id", "current_product_id", "final_lot_id"}
+    )
 
     device_uid = fields.Char(
         required=True,
@@ -146,7 +150,62 @@ class PinoutDevice(models.Model):
     @api.constrains("bundle_id", "current_product_id")
     def _check_bundle_device_allowed(self):
         for device in self.filtered("bundle_id"):
+            if device.bundle_id.state != "draft" and not self.env.context.get(
+                self._pairing_update_context
+            ):
+                raise ValidationError(
+                    _("Devices can only be attached to a bundle while it is in Draft.")
+                )
             device.bundle_id._validate_bundle_devices()
+
+    def write(self, vals):
+        if not self.env.context.get(self._pairing_update_context):
+            self._check_bundle_write_allowed(vals)
+        return super().write(vals)
+
+    def _check_bundle_write_allowed(self, vals):
+        if "bundle_id" in vals:
+            value = vals["bundle_id"]
+            new_bundle_id = value.id if isinstance(value, models.BaseModel) else value
+            new_bundle = self.env["pinout.device.bundle"].browse(new_bundle_id)
+            for device in self:
+                if device.bundle_id.id == new_bundle.id:
+                    continue
+                if device.bundle_id and device.bundle_id.state != "draft":
+                    raise ValidationError(
+                        _(
+                            "Pairing can only be changed while the current bundle "
+                            "is in Draft."
+                        )
+                    )
+                if new_bundle and new_bundle.state != "draft":
+                    raise ValidationError(
+                        _("Devices can only be attached to a Draft bundle.")
+                    )
+
+        changed_identity_fields = self._bundle_identity_fields.intersection(vals)
+        for device in self.filtered(
+            lambda item: item.bundle_id and item.bundle_id.state != "draft"
+        ):
+            for field_name in changed_identity_fields:
+                current_value = device[field_name]
+                new_value = vals[field_name]
+                if isinstance(current_value, models.BaseModel):
+                    new_value = (
+                        new_value.id
+                        if isinstance(new_value, models.BaseModel)
+                        else new_value
+                    )
+                    changed = current_value.id != new_value
+                else:
+                    changed = current_value != new_value
+                if changed:
+                    raise ValidationError(
+                        _(
+                            "Device identity, Current Product and Final Lot cannot "
+                            "be changed while its bundle pairing is fixed."
+                        )
+                    )
 
     @api.constrains("device_uid", "current_product_id", "final_lot_id")
     def _check_final_lot_matches_device(self):

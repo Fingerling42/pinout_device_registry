@@ -4,6 +4,7 @@ from typing import ClassVar
 from markupsafe import Markup, escape
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.osv import expression
 from odoo.tools import float_compare
 
 
@@ -12,6 +13,11 @@ class PinoutDeviceBundle(models.Model):
     _description = "Pinout Device Bundle"
     _inherit: ClassVar[list[str]] = ["mail.thread", "mail.activity.mixin"]
     _order = "name, id"
+    _state_transition_context: ClassVar[str] = "pinout_bundle_state_transition"
+    _pairing_update_context: ClassVar[str] = "pinout_bundle_pairing_update"
+    _locked_pairing_fields: ClassVar[frozenset[str]] = frozenset(
+        {"bundle_type_id", "bundle_product_id", "device_ids"}
+    )
 
     name = fields.Char(
         string="Bundle ID",
@@ -49,8 +55,11 @@ class PinoutDeviceBundle(models.Model):
     state = fields.Selection(
         [
             ("draft", "Draft"),
+            ("ready_for_sale", "Ready for Sale"),
             ("reserved", "Reserved"),
             ("sold", "Sold"),
+            ("partially_returned", "Partially Returned"),
+            ("returned", "Returned"),
             ("cancelled", "Cancelled"),
         ],
         default="draft",
@@ -95,6 +104,13 @@ class PinoutDeviceBundle(models.Model):
         readonly=True,
         store=False,
     )
+    reservation_delivery_id = fields.Many2one(
+        "stock.picking",
+        string="Reserved Delivery",
+        readonly=True,
+        copy=False,
+        ondelete="set null",
+    )
     notes = fields.Text()
     active = fields.Boolean(default=True)
 
@@ -125,6 +141,8 @@ class PinoutDeviceBundle(models.Model):
         )
         for vals in vals_list:
             prepared_vals = dict(vals)
+            if prepared_vals.get("state", "draft") != "draft":
+                raise ValidationError(_("A new bundle must start in Draft state."))
             name = (prepared_vals.get("name") or "").strip()
             if not name or name in {"/", _("New")}:
                 bundle_type_id = (
@@ -149,6 +167,7 @@ class PinoutDeviceBundle(models.Model):
         return super().create(prepared_vals_list)
 
     def write(self, vals):
+        self._check_write_allowed(vals)
         if "name" not in vals:
             return super().write(vals)
 
@@ -168,6 +187,37 @@ class PinoutDeviceBundle(models.Model):
         prepared_vals["name"] = new_name
         return super().write(prepared_vals)
 
+    def _check_write_allowed(self, vals):
+        if "state" in vals and not self.env.context.get(self._state_transition_context):
+            changed_bundles = self.filtered(
+                lambda bundle: bundle.state != vals["state"]
+            )
+            if changed_bundles:
+                raise ValidationError(
+                    _("Use the bundle lifecycle actions to change its state.")
+                )
+
+        if self.env.context.get(self._pairing_update_context):
+            return
+        changed_pairing_fields = self._locked_pairing_fields.intersection(vals)
+        if not changed_pairing_fields:
+            return
+        for bundle in self.filtered(lambda item: item.state != "draft"):
+            changed = "device_ids" in changed_pairing_fields
+            for field_name in changed_pairing_fields - {"device_ids"}:
+                value = vals[field_name]
+                value_id = value.id if isinstance(value, models.BaseModel) else value
+                if bundle[field_name].id != value_id:
+                    changed = True
+                    break
+            if changed:
+                raise ValidationError(
+                    _(
+                        "Bundle Type, Bundle Product and pairing can only be changed "
+                        "while the bundle is in Draft."
+                    )
+                )
+
     @api.depends("device_ids")
     def _compute_device_count(self):
         for bundle in self:
@@ -185,9 +235,21 @@ class PinoutDeviceBundle(models.Model):
                 bundle._format_expected_component_checklist()
             )
 
-    @api.depends("device_ids", "device_ids.final_lot_id")
+    @api.depends(
+        "device_ids",
+        "device_ids.final_lot_id",
+        "reservation_delivery_id",
+        "reservation_delivery_id.partner_id",
+        "reservation_delivery_id.sale_id",
+    )
     def _compute_bundle_sales_data(self):
         for bundle in self:
+            if bundle.state == "reserved" and bundle.reservation_delivery_id:
+                picking = bundle.reservation_delivery_id
+                bundle.customer_id = picking.partner_id
+                bundle.sale_order_id = picking.sale_id
+                bundle.delivery_id = picking
+                continue
             devices = bundle.device_ids
             bundle.customer_id = bundle._get_shared_device_value(
                 devices, "last_customer_id"
@@ -215,10 +277,11 @@ class PinoutDeviceBundle(models.Model):
         for bundle in self:
             devices = bundle.device_ids
             if (
-                bundle.state in {"sold", "cancelled"}
+                bundle.state in {"sold", "partially_returned", "returned", "cancelled"}
                 or not devices
                 or any(device.state != "sold" for device in devices)
                 or any(not device.final_lot_id for device in devices)
+                or not bundle._is_composition_complete()
             ):
                 continue
 
@@ -234,18 +297,288 @@ class PinoutDeviceBundle(models.Model):
             if not delivery:
                 continue
 
-            bundle.with_context(tracking_disable=True).state = "sold"
-            delivery_link = Markup(
-                '<a href="#" data-oe-model="{}" data-oe-id="{}">{}</a>'
-            ).format(delivery._name, delivery.id, delivery.display_name)
-            bundle.message_post(
-                body=_(
+            bundle._set_lifecycle_state(
+                "sold",
+                _(
                     "Bundle state was automatically changed to Sold after all "
-                    "attached devices were delivered in %(delivery)s.",
-                    delivery=delivery_link,
+                    "attached devices were delivered in %(document)s."
                 ),
+                document=delivery,
+                extra_values={"reservation_delivery_id": False},
+            )
+
+    def _sync_return_state_from_devices(self, return_picking):
+        for bundle in self.filtered(
+            lambda item: item.state in {"sold", "partially_returned", "returned"}
+        ):
+            devices = bundle.device_ids
+            if not devices:
+                continue
+            returned_count = len(
+                devices.filtered(lambda device: device.state == "returned")
+            )
+            if returned_count == len(devices):
+                new_state = "returned"
+            elif returned_count:
+                new_state = "partially_returned"
+            else:
+                continue
+            if bundle.state == new_state:
+                continue
+            bundle._set_lifecycle_state(
+                new_state,
+                _(
+                    "Bundle state was automatically changed to %(state)s after "
+                    "the customer return in %(document)s."
+                ),
+                document=return_picking,
+            )
+
+    def _sync_reservation_state(self):
+        for bundle in self.filtered(
+            lambda item: item.state in {"ready_for_sale", "reserved"}
+        ):
+            delivery = bundle._get_active_reservation_delivery()
+            if delivery and bundle.state == "ready_for_sale":
+                if any(
+                    device.state != "ready_for_sale" for device in bundle.device_ids
+                ):
+                    continue
+                bundle.device_ids.with_context(tracking_disable=True).write(
+                    {"state": "reserved"}
+                )
+                bundle._set_lifecycle_state(
+                    "reserved",
+                    _(
+                        "Bundle was automatically reserved after all Final Lots "
+                        "were assigned to %(document)s."
+                    ),
+                    document=delivery,
+                    extra_values={"reservation_delivery_id": delivery.id},
+                )
+            elif delivery and bundle.state == "reserved":
+                if bundle.reservation_delivery_id != delivery:
+                    bundle.with_context(
+                        **{self._state_transition_context: True},
+                        tracking_disable=True,
+                    ).write({"reservation_delivery_id": delivery.id})
+            elif not delivery and bundle.state == "reserved":
+                bundle.device_ids.filtered(
+                    lambda device: device.state == "reserved"
+                ).with_context(tracking_disable=True).write({"state": "ready_for_sale"})
+                bundle._set_lifecycle_state(
+                    "ready_for_sale",
+                    _(
+                        "Bundle was automatically returned to Ready for Sale "
+                        "because its serial assignment was removed or the delivery "
+                        "was cancelled."
+                    ),
+                    extra_values={"reservation_delivery_id": False},
+                )
+
+    def _get_active_reservation_delivery(self):
+        self.ensure_one()
+        devices = self.device_ids
+        if not devices or any(not device.final_lot_id for device in devices):
+            return self.env["stock.picking"]
+
+        lot_ids = set(devices.final_lot_id.ids)
+        move_lines = self.env["stock.move.line"].search(
+            [
+                ("lot_id", "in", list(lot_ids)),
+                ("quantity", ">", 0),
+                ("state", "not in", ["done", "cancel"]),
+                ("picking_id", "!=", False),
+                ("picking_id.picking_type_code", "=", "outgoing"),
+                ("picking_id.location_dest_id.usage", "=", "customer"),
+                ("picking_id.sale_id", "!=", False),
+                ("picking_id.partner_id", "!=", False),
+            ],
+            order="picking_id, id",
+        )
+        for picking in move_lines.picking_id:
+            picking_lot_ids = set(
+                move_lines.filtered_domain([("picking_id", "=", picking.id)]).lot_id.ids
+            )
+            if lot_ids.issubset(picking_lot_ids):
+                return picking
+        return self.env["stock.picking"]
+
+    def _set_lifecycle_state(
+        self,
+        new_state,
+        message,
+        *,
+        document=None,
+        extra_values=None,
+        message_values=None,
+    ):
+        state_labels = dict(self._fields["state"].selection)
+        for bundle in self:
+            values = dict(extra_values or {})
+            values["state"] = new_state
+            bundle.with_context(
+                **{self._state_transition_context: True},
+                tracking_disable=True,
+            ).write(values)
+            format_values = dict(message_values or {})
+            format_values.update(
+                {
+                    "state": state_labels.get(new_state, new_state),
+                }
+            )
+            if document:
+                format_values["document"] = bundle._format_document_link(document)
+            bundle.message_post(
+                body=message % format_values,
                 subtype_xmlid="mail.mt_note",
             )
+
+    def _format_document_link(self, document):
+        return Markup('<a href="#" data-oe-model="{}" data-oe-id="{}">{}</a>').format(
+            document._name, document.id, document.display_name
+        )
+
+    def action_mark_ready_for_sale(self):
+        for bundle in self:
+            if bundle.state != "draft":
+                raise ValidationError(
+                    _("Only a Draft bundle can be marked Ready for Sale.")
+                )
+            bundle._check_ready_for_sale_requirements()
+            bundle._set_lifecycle_state(
+                "ready_for_sale",
+                _(
+                    "Bundle was marked Ready for Sale. Its physical pairing is "
+                    "now fixed until Reset to Draft is used."
+                ),
+            )
+        self._sync_reservation_state()
+        return True
+
+    def action_reset_to_draft(self):
+        for bundle in self:
+            if bundle.state != "ready_for_sale":
+                raise ValidationError(
+                    _("Only a Ready for Sale bundle can be reset to Draft.")
+                )
+            bundle._set_lifecycle_state(
+                "draft",
+                _(
+                    "Bundle was reset to Draft. Remove its existing physical "
+                    "labels before changing the pairing."
+                ),
+                extra_values={"reservation_delivery_id": False},
+            )
+        return True
+
+    def action_cancel_and_unpair(self):
+        allowed_states = {"draft", "ready_for_sale", "returned"}
+        for bundle in self:
+            if bundle.state not in allowed_states:
+                raise ValidationError(
+                    _(
+                        "Cancel and Unpair is only available for Draft, Ready for "
+                        "Sale or fully Returned bundles. Remove any active serial "
+                        "assignment in the delivery first."
+                    )
+                )
+            device_uids = bundle.device_ids.sorted("device_uid").mapped("device_uid")
+            previous_devices = Markup("<br>").join(escape(uid) for uid in device_uids)
+            if not previous_devices:
+                previous_devices = Markup(
+                    '<span class="text-muted">%s</span>'
+                ) % escape(_("None"))
+            bundle.device_ids.with_context(
+                **{self._pairing_update_context: True}
+            ).write({"bundle_id": False})
+            bundle._set_lifecycle_state(
+                "cancelled",
+                _(
+                    "Bundle was cancelled and unpaired. Previously attached "
+                    "Device UIDs:<br>%(devices)s"
+                ),
+                extra_values={"reservation_delivery_id": False},
+                message_values={"devices": previous_devices},
+            )
+        return True
+
+    def action_prepare_for_resale(self):
+        for bundle in self:
+            if bundle.state != "returned":
+                raise ValidationError(
+                    _("Only a fully Returned bundle can be prepared for resale.")
+                )
+            bundle._check_ready_for_sale_requirements()
+            bundle._set_lifecycle_state(
+                "ready_for_sale",
+                _(
+                    "Returned bundle was prepared for resale with the same "
+                    "physical pairing."
+                ),
+            )
+        self._sync_reservation_state()
+        return True
+
+    def _check_ready_for_sale_requirements(self):
+        for bundle in self:
+            bundle._validate_bundle_devices()
+            if not bundle.device_ids:
+                raise ValidationError(
+                    _(
+                        "Attach at least one Device before marking the bundle Ready for Sale."
+                    )
+                )
+            if not bundle._is_composition_complete():
+                raise ValidationError(
+                    _(
+                        "Expected Components must be complete before the bundle "
+                        "can be marked Ready for Sale."
+                    )
+                )
+            missing_lot = bundle.device_ids.filtered(
+                lambda device: not device.final_lot_id
+            )
+            if missing_lot:
+                raise ValidationError(
+                    _(
+                        "Every Device must have a Final Lot / Serial before the "
+                        "bundle can be marked Ready for Sale. Missing: %(devices)s",
+                        devices=", ".join(missing_lot.mapped("device_uid")),
+                    )
+                )
+            invalid_quality = bundle.device_ids.filtered(
+                lambda device: device.quality_status != "ok"
+            )
+            if invalid_quality:
+                raise ValidationError(
+                    _(
+                        "Every Device must have Quality Status OK before the bundle "
+                        "can be marked Ready for Sale. Check: %(devices)s",
+                        devices=", ".join(invalid_quality.mapped("device_uid")),
+                    )
+                )
+            invalid_state = bundle.device_ids.filtered(
+                lambda device: device.state != "ready_for_sale"
+            )
+            if invalid_state:
+                raise ValidationError(
+                    _(
+                        "Every Device must be Ready for Sale before the bundle can "
+                        "be marked Ready for Sale. Check: %(devices)s",
+                        devices=", ".join(invalid_state.mapped("device_uid")),
+                    )
+                )
+
+    def _is_composition_complete(self):
+        self.ensure_one()
+        if not self.device_ids:
+            return False
+        expected_quantities = self._get_expected_component_quantities()
+        if not expected_quantities:
+            return not self.bundle_type_id.requires_kit_bom
+        rows = self._get_component_checklist_rows()
+        return bool(rows) and all(row["status"] == "complete" for row in rows)
 
     @api.constrains("bundle_type_id", "bundle_product_id")
     def _check_bundle_configuration(self):
@@ -305,7 +638,7 @@ class PinoutDeviceBundle(models.Model):
 
             actual_quantities = defaultdict(float)
             for device in bundle.device_ids:
-                if device.state in blocked_states:
+                if bundle.state == "draft" and device.state in blocked_states:
                     raise ValidationError(
                         _(
                             "Device %(device)s cannot be added to a bundle because it is %(state)s.",
@@ -315,7 +648,7 @@ class PinoutDeviceBundle(models.Model):
                             ),
                         )
                     )
-                if device.last_delivery_id:
+                if bundle.state == "draft" and device.last_delivery_id:
                     raise ValidationError(
                         _(
                             "Device %(device)s cannot be added to a bundle because it was already delivered in %(delivery)s.",
@@ -541,3 +874,42 @@ class PinoutDeviceBundle(models.Model):
             "context": {"default_bundle_id": self.id},
             "target": "current",
         }
+
+    def action_manage_devices(self):
+        self.ensure_one()
+        if self.state != "draft":
+            raise ValidationError(
+                _("Device pairing can only be managed while the bundle is in Draft.")
+            )
+
+        candidate_domain = [
+            ("bundle_id", "=", False),
+            ("state", "not in", list(self._get_blocked_device_states())),
+        ]
+        expected_products = self.env["product.product"].browse(
+            [product.id for product in self._get_expected_component_quantities()]
+        )
+        if expected_products:
+            candidate_domain.append(("current_product_id", "in", expected_products.ids))
+        domain = expression.OR(
+            [
+                [("bundle_id", "=", self.id)],
+                candidate_domain,
+            ]
+        )
+        action = self.env["ir.actions.actions"]._for_xml_id(
+            "pinout_device_registry.pinout_device_action"
+        )
+        action.update(
+            {
+                "name": _("Manage Devices for %(bundle)s", bundle=self.display_name),
+                "domain": domain,
+                "context": {
+                    "active_model": "pinout.device",
+                    "default_bundle_id": self.id,
+                    "create": False,
+                },
+                "target": "current",
+            }
+        )
+        return action

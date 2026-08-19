@@ -90,6 +90,8 @@ class TestPinoutDeviceBundleIdentifier(TransactionCase):
         bundle.name = "UPDATED-DRAFT-BUNDLE-ID"
         self.assertEqual(bundle.name, "UPDATED-DRAFT-BUNDLE-ID")
 
-        bundle.state = "reserved"
+        bundle.with_context(pinout_bundle_state_transition=True).write(
+            {"state": "ready_for_sale"}
+        )
         with self.assertRaisesRegex(ValidationError, "only be changed"):
             bundle.name = "FORBIDDEN-RESERVED-ID"
