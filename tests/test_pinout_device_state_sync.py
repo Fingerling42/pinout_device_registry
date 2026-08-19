@@ -77,7 +77,12 @@ class TestPinoutDeviceStateSync(TransactionCase):
                 lot_id=lot,
             )
         cls.bundle = cls.env["pinout.device.bundle"].create(
-            {"name": "DEVICE-STATE-BUNDLE", "bundle_type": "other"}
+            {
+                "name": "DEVICE-STATE-BUNDLE",
+                "bundle_type_id": cls.env.ref(
+                    "pinout_device_registry.bundle_type_other"
+                ).id,
+            }
         )
         cls.devices = cls.env["pinout.device"].create(
             [

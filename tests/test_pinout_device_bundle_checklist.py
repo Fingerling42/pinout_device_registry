@@ -66,7 +66,9 @@ class TestPinoutDeviceBundleChecklist(TransactionCase):
         cls.bundle = cls.env["pinout.device.bundle"].create(
             {
                 "name": "CHECKLIST-DUAL-001",
-                "bundle_type": "dual",
+                "bundle_type_id": cls.env.ref(
+                    "pinout_device_registry.bundle_type_dual"
+                ).id,
                 "bundle_product_id": cls.kit_product.id,
             }
         )

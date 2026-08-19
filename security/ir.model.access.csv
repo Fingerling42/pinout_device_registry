@@ -1,6 +1,7 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_pinout_device_internal,pinout.device.internal,model_pinout_device,base.group_user,1,1,1,1
 access_pinout_device_bundle_internal,pinout.device.bundle.internal,model_pinout_device_bundle,base.group_user,1,1,1,1
+access_pinout_device_bundle_type_internal,pinout.device.bundle.type.internal,model_pinout_device_bundle_type,base.group_user,1,1,1,1
 access_pinout_device_batch_update_wizard_internal,pinout.device.batch.update.wizard.internal,model_pinout_device_batch_update_wizard,base.group_user,1,1,1,0
 access_pinout_device_type_internal,pinout.device.type.internal,model_pinout_device_type,base.group_user,1,1,1,1
 access_pinout_device_type_attribute_line_internal,pinout.device.type.attribute.line.internal,model_pinout_device_type_attribute_line,base.group_user,1,1,1,1

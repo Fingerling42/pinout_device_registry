@@ -7,7 +7,7 @@
             <tree>
                 <field name="name" optional="show"/>
                 <field name="bundle_product_id" optional="show"/>
-                <field name="bundle_type" optional="show"/>
+                <field name="bundle_type_id" optional="show"/>
                 <field name="state" optional="show"/>
                 <field name="device_count" optional="show"/>
                 <field name="customer_id" optional="show"/>
@@ -48,10 +48,16 @@
                     </div>
                     <group>
                         <group>
-                            <field name="bundle_type"/>
+                            <field
+                                name="bundle_type_id"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            />
+                            <field name="allowed_product_template_ids" invisible="1"/>
+                            <field name="bundle_type_requires_kit_bom" invisible="1"/>
                             <field
                                 name="bundle_product_id"
-                                required="bundle_type == 'dual'"
+                                domain="[('product_tmpl_id', 'in', allowed_product_template_ids)] if allowed_product_template_ids else []"
+                                required="bundle_type_requires_kit_bom"
                                 options="{'no_create': True, 'no_create_edit': True}"
                             />
                             <field name="active" invisible="1"/>
@@ -109,7 +115,7 @@
             <search>
                 <field name="name"/>
                 <field name="bundle_product_id"/>
-                <field name="bundle_type"/>
+                <field name="bundle_type_id"/>
                 <filter string="Active" name="active" domain="[('active', '=', True)]"/>
                 <filter string="Archived" name="inactive" domain="[('active', '=', False)]" context="{'active_test': False}"/>
                 <separator/>
@@ -118,7 +124,7 @@
                 <filter string="Sold" name="state_sold" domain="[('state', '=', 'sold')]"/>
                 <filter string="Cancelled" name="state_cancelled" domain="[('state', '=', 'cancelled')]"/>
                 <group expand="0" string="Group By">
-                    <filter string="Type" name="group_by_bundle_type" context="{'group_by': 'bundle_type'}"/>
+                    <filter string="Type" name="group_by_bundle_type" context="{'group_by': 'bundle_type_id'}"/>
                     <filter string="Kit Product" name="group_by_bundle_product" context="{'group_by': 'bundle_product_id'}"/>
                     <filter string="State" name="group_by_state" context="{'group_by': 'state'}"/>
                 </group>

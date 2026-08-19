@@ -14,14 +14,25 @@ class PinoutDeviceBundle(models.Model):
     _order = "name, id"
 
     name = fields.Char(required=True, index=True)
-    bundle_type = fields.Selection(
-        [
-            ("dual", "Dual"),
-            ("other", "Other"),
-        ],
-        default="dual",
+    bundle_type_id = fields.Many2one(
+        "pinout.device.bundle.type",
+        string="Bundle Type",
+        default=lambda self: self.env.ref(
+            "pinout_device_registry.bundle_type_dual",
+            raise_if_not_found=False,
+        ),
         required=True,
+        ondelete="restrict",
         tracking=True,
+    )
+    allowed_product_template_ids = fields.Many2many(
+        "product.template",
+        related="bundle_type_id.allowed_product_template_ids",
+        readonly=True,
+    )
+    bundle_type_requires_kit_bom = fields.Boolean(
+        related="bundle_type_id.requires_kit_bom",
+        readonly=True,
     )
     state = fields.Selection(
         [
@@ -154,12 +165,38 @@ class PinoutDeviceBundle(models.Model):
                 subtype_xmlid="mail.mt_note",
             )
 
-    @api.constrains("bundle_type", "bundle_product_id")
-    def _check_dual_bundle_product(self):
+    @api.constrains("bundle_type_id", "bundle_product_id")
+    def _check_bundle_configuration(self):
         for bundle in self:
-            if bundle.bundle_type == "dual" and not bundle.bundle_product_id:
+            if bundle.bundle_type_id.requires_kit_bom and not bundle.bundle_product_id:
                 raise ValidationError(
-                    _("Dual bundles must have a Kit product variant.")
+                    _(
+                        "Bundle type %(bundle_type)s requires a Bundle Product / Kit Variant.",
+                        bundle_type=bundle.bundle_type_id.display_name,
+                    )
+                )
+            allowed_templates = bundle.allowed_product_template_ids
+            if (
+                bundle.bundle_product_id
+                and allowed_templates
+                and bundle.bundle_product_id.product_tmpl_id not in allowed_templates
+            ):
+                raise ValidationError(
+                    _(
+                        "Bundle Product / Kit Variant is not allowed for Bundle Type %(bundle_type)s.",
+                        bundle_type=bundle.bundle_type_id.display_name,
+                    )
+                )
+            if (
+                bundle.bundle_type_id.requires_kit_bom
+                and bundle.bundle_product_id
+                and not bundle._get_expected_component_quantities()
+            ):
+                raise ValidationError(
+                    _(
+                        "Bundle product %(product)s must have an active Kit BoM with component lines.",
+                        product=bundle.bundle_product_id.display_name,
+                    )
                 )
 
     @api.constrains("bundle_product_id", "device_ids")
@@ -167,6 +204,7 @@ class PinoutDeviceBundle(models.Model):
         self._validate_bundle_devices()
 
     def _validate_bundle_devices(self):
+        self._check_bundle_configuration()
         blocked_states = self._get_blocked_device_states()
         for bundle in self:
             if not bundle.bundle_product_id:
@@ -174,12 +212,14 @@ class PinoutDeviceBundle(models.Model):
 
             expected_quantities = bundle._get_expected_component_quantities()
             if not expected_quantities:
-                raise ValidationError(
-                    _(
-                        "Bundle product %(product)s must have an active Kit BoM with component lines.",
-                        product=bundle.bundle_product_id.display_name,
+                if bundle.bundle_type_id.requires_kit_bom:
+                    raise ValidationError(
+                        _(
+                            "Bundle product %(product)s must have an active Kit BoM with component lines.",
+                            product=bundle.bundle_product_id.display_name,
+                        )
                     )
-                )
+                continue
 
             actual_quantities = defaultdict(float)
             for device in bundle.device_ids:
@@ -240,6 +280,32 @@ class PinoutDeviceBundle(models.Model):
 
     def _get_blocked_device_states(self):
         return {"sold", "returned", "scrapped"}
+
+    @api.onchange("bundle_type_id")
+    def _onchange_bundle_type_id(self):
+        result = {"domain": {"bundle_product_id": self._get_bundle_product_domain()}}
+        allowed_templates = self.allowed_product_template_ids
+        if (
+            self.bundle_product_id
+            and allowed_templates
+            and self.bundle_product_id.product_tmpl_id not in allowed_templates
+        ):
+            result["warning"] = {
+                "title": _("Bundle Product Not Allowed"),
+                "message": _(
+                    "Bundle Product / Kit Variant remains selected. Choose a product "
+                    "allowed for this Bundle Type or clear it manually before saving."
+                ),
+            }
+        return result
+
+    def _get_bundle_product_domain(self):
+        domain = []
+        if self.allowed_product_template_ids:
+            domain.append(
+                ("product_tmpl_id", "in", self.allowed_product_template_ids.ids)
+            )
+        return domain
 
     def _get_kit_bom(self):
         self.ensure_one()

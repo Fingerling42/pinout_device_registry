@@ -45,10 +45,18 @@
     />
 
     <menuitem
+        id="pinout_device_bundle_type_menu"
+        name="Bundle Types"
+        parent="pinout_device_registry_configuration_menu"
+        action="pinout_device_bundle_type_action"
+        sequence="20"
+    />
+
+    <menuitem
         id="pinout_attribute_variant_code_menu"
         name="Attribute Variant Codes"
         parent="pinout_device_registry_configuration_menu"
         action="pinout_product_variant_search.product_attribute_value_action"
-        sequence="20"
+        sequence="30"
     />
 </odoo>

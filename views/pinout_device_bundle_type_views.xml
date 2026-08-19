@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="pinout_device_bundle_type_view_tree" model="ir.ui.view">
+        <field name="name">pinout.device.bundle.type.view.tree</field>
+        <field name="model">pinout.device.bundle.type</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="requires_kit_bom"/>
+                <field name="active" widget="boolean_toggle"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="pinout_device_bundle_type_view_form" model="ir.ui.view">
+        <field name="name">pinout.device.bundle.type.view.form</field>
+        <field name="model">pinout.device.bundle.type</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="code"/>
+                        </group>
+                        <group>
+                            <field name="requires_kit_bom"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Product Forms" name="product_forms">
+                            <field
+                                name="allowed_product_template_ids"
+                                options="{'no_create': True, 'no_create_edit': True}"
+                            >
+                                <tree>
+                                    <field name="default_code" optional="show"/>
+                                    <field name="name"/>
+                                    <field name="detailed_type"/>
+                                    <field name="tracking"/>
+                                    <field name="product_variant_count"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="pinout_device_bundle_type_view_search" model="ir.ui.view">
+        <field name="name">pinout.device.bundle.type.view.search</field>
+        <field name="model">pinout.device.bundle.type</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="code"/>
+                <filter string="Requires Kit BoM" name="requires_kit_bom" domain="[('requires_kit_bom', '=', True)]"/>
+                <separator/>
+                <filter string="Active" name="active" domain="[('active', '=', True)]"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]" context="{'active_test': False}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="pinout_device_bundle_type_action" model="ir.actions.act_window">
+        <field name="name">Bundle Types</field>
+        <field name="res_model">pinout.device.bundle.type</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="pinout_device_bundle_type_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a bundle type
+            </p>
+        </field>
+    </record>
+</odoo>
