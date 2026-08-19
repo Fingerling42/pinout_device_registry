@@ -428,16 +428,11 @@ class PinoutDeviceBundle(models.Model):
                 }
             )
             if document:
-                format_values["document"] = bundle._format_document_link(document)
+                format_values["document"] = document._get_html_link()
             bundle.message_post(
-                body=message % format_values,
+                body=Markup(message) % format_values,
                 subtype_xmlid="mail.mt_note",
             )
-
-    def _format_document_link(self, document):
-        return Markup('<a href="#" data-oe-model="{}" data-oe-id="{}">{}</a>').format(
-            document._name, document.id, document.display_name
-        )
 
     def action_mark_ready_for_sale(self):
         for bundle in self:

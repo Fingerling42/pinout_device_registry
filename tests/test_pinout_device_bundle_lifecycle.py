@@ -265,6 +265,14 @@ class TestPinoutDeviceBundleLifecycle(TransactionCase):
         self.assertEqual(self.bundle.customer_id, self.partner)
         self.assertEqual(self.bundle.sale_order_id, sale_order)
         self.assertEqual(self.bundle.delivery_id, picking)
+        reservation_message = self.bundle.message_ids.filtered(
+            lambda message: "automatically reserved" in message.body
+        )
+        self.assertTrue(reservation_message)
+        for message in reservation_message:
+            self.assertIn("data-oe-model", message.body)
+            self.assertIn("stock.picking", message.body)
+            self.assertNotIn("&lt;a", message.body)
 
         move_lines.unlink()
         self.assertEqual(self.bundle.state, "ready_for_sale")
