@@ -49,6 +49,16 @@ class TestPinoutDeviceBundleChecklist(TransactionCase):
                 ],
             }
         )
+        cls.bundle_type = cls.env["pinout.device.bundle.type"].create(
+            {
+                "name": "Checklist Bundle Type",
+                "code": "CHECKLIST-BUNDLE",
+                "allowed_product_template_ids": [
+                    Command.set(cls.kit_product.product_tmpl_id.ids)
+                ],
+                "requires_kit_bom": True,
+            }
+        )
         cls.urban_device = cls.env["pinout.device"].create(
             {
                 "device_uid": "CHECKLIST-URBAN-001",
@@ -66,9 +76,7 @@ class TestPinoutDeviceBundleChecklist(TransactionCase):
         cls.bundle = cls.env["pinout.device.bundle"].create(
             {
                 "name": "CHECKLIST-DUAL-001",
-                "bundle_type_id": cls.env.ref(
-                    "pinout_device_registry.bundle_type_dual"
-                ).id,
+                "bundle_type_id": cls.bundle_type.id,
                 "bundle_product_id": cls.kit_product.id,
             }
         )

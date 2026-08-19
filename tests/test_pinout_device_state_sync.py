@@ -59,6 +59,13 @@ class TestPinoutDeviceStateSync(TransactionCase):
                 ],
             }
         )
+        cls.bundle_type = cls.env["pinout.device.bundle.type"].create(
+            {
+                "name": "Device State Bundle Type",
+                "code": "DEVICE-STATE-BUNDLE",
+                "requires_kit_bom": False,
+            }
+        )
         cls.lots = cls.env["stock.lot"].create(
             [
                 {
@@ -79,9 +86,7 @@ class TestPinoutDeviceStateSync(TransactionCase):
         cls.bundle = cls.env["pinout.device.bundle"].create(
             {
                 "name": "DEVICE-STATE-BUNDLE",
-                "bundle_type_id": cls.env.ref(
-                    "pinout_device_registry.bundle_type_other"
-                ).id,
+                "bundle_type_id": cls.bundle_type.id,
             }
         )
         cls.devices = cls.env["pinout.device"].create(
