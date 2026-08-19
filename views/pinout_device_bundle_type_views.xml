@@ -45,7 +45,12 @@
                     <group>
                         <group>
                             <field name="name"/>
-                            <field name="code"/>
+                            <field name="bundle_count" invisible="1"/>
+                            <field
+                                name="code"
+                                placeholder="Generated from the name if empty"
+                                readonly="bundle_count &gt; 0"
+                            />
                         </group>
                         <group>
                             <field name="requires_kit_bom"/>

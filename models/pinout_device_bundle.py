@@ -13,7 +13,15 @@ class PinoutDeviceBundle(models.Model):
     _inherit: ClassVar[list[str]] = ["mail.thread", "mail.activity.mixin"]
     _order = "name, id"
 
-    name = fields.Char(required=True, index=True)
+    name = fields.Char(
+        string="Bundle ID",
+        default=lambda self: _("New"),
+        required=True,
+        copy=False,
+        index=True,
+        tracking=True,
+        help="Leave New to generate an ID from the Bundle Type Code, or enter a custom unique ID.",
+    )
     bundle_type_id = fields.Many2one(
         "pinout.device.bundle.type",
         string="Bundle Type",
@@ -89,6 +97,76 @@ class PinoutDeviceBundle(models.Model):
     )
     notes = fields.Text()
     active = fields.Boolean(default=True)
+
+    _sql_constraints: ClassVar[list[tuple[str, str, str]]] = [
+        (
+            "name_unique",
+            "unique(name)",
+            "The Bundle ID must be globally unique.",
+        ),
+    ]
+
+    @api.model
+    def _check_names_available(self, names, exclude_ids=None):
+        if len(names) != len(set(names)):
+            raise ValidationError(_("The Bundle ID must be globally unique."))
+
+        domain = [("name", "in", names)]
+        if exclude_ids:
+            domain.append(("id", "not in", exclude_ids))
+        if self.with_context(active_test=False).search(domain, limit=1):
+            raise ValidationError(_("The Bundle ID must be globally unique."))
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        prepared_vals_list = []
+        default_bundle_type_id = self.default_get(["bundle_type_id"]).get(
+            "bundle_type_id"
+        )
+        for vals in vals_list:
+            prepared_vals = dict(vals)
+            name = (prepared_vals.get("name") or "").strip()
+            if not name or name in {"/", _("New")}:
+                bundle_type_id = (
+                    prepared_vals.get("bundle_type_id") or default_bundle_type_id
+                )
+                bundle_type = self.env["pinout.device.bundle.type"].browse(
+                    bundle_type_id
+                )
+                if not bundle_type.exists():
+                    raise ValidationError(
+                        _("Select a Bundle Type before generating the Bundle ID.")
+                    )
+                sequence = self.env["ir.sequence"].next_by_code("pinout.device.bundle")
+                if not sequence:
+                    raise ValidationError(
+                        _("The sequence for automatic Bundle IDs is not configured.")
+                    )
+                name = f"{bundle_type.code}-{sequence}"
+            prepared_vals["name"] = name
+            prepared_vals_list.append(prepared_vals)
+        self._check_names_available([vals["name"] for vals in prepared_vals_list])
+        return super().create(prepared_vals_list)
+
+    def write(self, vals):
+        if "name" not in vals:
+            return super().write(vals)
+
+        prepared_vals = dict(vals)
+        new_name = (prepared_vals["name"] or "").strip()
+        if not new_name or new_name in {"/", _("New")}:
+            raise ValidationError(_("Bundle ID cannot be empty after creation."))
+        for bundle in self:
+            if new_name != bundle.name and bundle.state != "draft":
+                raise ValidationError(
+                    _("Bundle ID can only be changed while the bundle is in Draft.")
+                )
+        if any(new_name != bundle.name for bundle in self):
+            if len(self) > 1:
+                raise ValidationError(_("The Bundle ID must be globally unique."))
+            self._check_names_available([new_name], exclude_ids=self.ids)
+        prepared_vals["name"] = new_name
+        return super().write(prepared_vals)
 
     @api.depends("device_ids")
     def _compute_device_count(self):
