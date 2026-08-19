@@ -18,7 +18,11 @@ class PinoutDevice(models.Model):
         required=True,
         index=True,
         tracking=True,
-        help="Main physical device UID. Current batch: MAC without separators. Future batches: PCB serial.",
+        help=(
+            "Globally identifies one physical device across all Device Types. "
+            "The same Device UID cannot be reused for another registry record. "
+            "Current batch: MAC without separators. Future batches: PCB serial."
+        ),
     )
     device_type_id = fields.Many2one(
         "pinout.device.type",
@@ -135,7 +139,7 @@ class PinoutDevice(models.Model):
         (
             "device_uid_unique",
             "unique(device_uid)",
-            "The Device UID must be unique.",
+            "Device UID must be globally unique across all Device Types.",
         ),
     ]
 

@@ -1,6 +1,6 @@
 {
     "name": "Pinout Device Registry",
-    "version": "17.0.1.3.0",
+    "version": "17.0.1.3.1",
     "category": "Inventory/Manufacturing",
     "summary": "Generic hardware device registry for physical device identity, lifecycle, bundles, and final serial linkage",
     "author": "Pinout LTD",
