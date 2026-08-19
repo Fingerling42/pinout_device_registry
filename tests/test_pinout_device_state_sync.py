@@ -29,12 +29,15 @@ class TestPinoutDeviceStateSync(TransactionCase):
             limit=1,
         )
         cls.incoming_type = cls.outgoing_type.return_picking_type_id
-        cls.internal_type = cls.env["stock.picking.type"].search(
-            [
-                ("code", "=", "internal"),
-                ("warehouse_id.company_id", "=", cls.env.company.id),
-            ],
-            limit=1,
+        cls.internal_type = cls.env["stock.picking.type"].create(
+            {
+                "name": "Device State Internal Transfer",
+                "sequence_code": "DEVICE-STATE-INT",
+                "code": "internal",
+                "company_id": cls.env.company.id,
+                "default_location_src_id": cls.stock_location.id,
+                "default_location_dest_id": cls.internal_location.id,
+            }
         )
         cls.products = cls.env["product.product"].create(
             [

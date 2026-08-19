@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from odoo import fields, models
 
 
@@ -19,7 +21,7 @@ class PinoutDeviceType(models.Model):
     )
     active = fields.Boolean(default=True)
 
-    _sql_constraints = [
+    _sql_constraints: ClassVar[list[tuple[str, str, str]]] = [
         (
             "code_unique",
             "unique(code)",
@@ -48,7 +50,7 @@ class PinoutDeviceTypeAttributeLine(models.Model):
         help="Use product.attribute.value.variant_code when available. Fallback to attribute value name.",
     )
 
-    _sql_constraints = [
+    _sql_constraints: ClassVar[list[tuple[str, str, str]]] = [
         (
             "device_type_attribute_unique",
             "unique(device_type_id, attribute_id)",
