@@ -1,10 +1,10 @@
 {
     "name": "Pinout Device Registry",
-    "version": "17.0.1.2.0",
+    "version": "17.0.1.2.1",
     "category": "Inventory/Manufacturing",
     "summary": "Generic hardware device registry for physical device identity, lifecycle, bundles, and final serial linkage",
     "author": "Pinout LTD",
-    "license": "Other OSI approved licence", # Apache-2.0
+    "license": "Other OSI approved licence",  # Apache-2.0
     "depends": [
         "base",
         "mail",

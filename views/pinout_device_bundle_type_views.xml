@@ -1,5 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="pinout_bundle_product_template_selection_view_tree" model="ir.ui.view">
+        <field name="name">pinout.bundle.product.template.selection.view.tree</field>
+        <field name="model">product.template</field>
+        <field name="arch" type="xml">
+            <tree create="0" delete="0">
+                <field name="default_code" optional="show"/>
+                <field name="name"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="pinout_bundle_product_template_selection_view_search" model="ir.ui.view">
+        <field name="name">pinout.bundle.product.template.selection.view.search</field>
+        <field name="model">product.template</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="default_code"/>
+                <field name="categ_id"/>
+            </search>
+        </field>
+    </record>
+
     <record id="pinout_device_bundle_type_view_tree" model="ir.ui.view">
         <field name="name">pinout.device.bundle.type.view.tree</field>
         <field name="model">pinout.device.bundle.type</field>
@@ -26,14 +49,20 @@
                         </group>
                         <group>
                             <field name="requires_kit_bom"/>
+                            <field name="allow_any_product_form"/>
                             <field name="active"/>
                         </group>
                     </group>
                     <notebook>
-                        <page string="Product Forms" name="product_forms">
+                        <page
+                            string="Product Forms"
+                            name="product_forms"
+                            invisible="allow_any_product_form"
+                        >
                             <field
                                 name="allowed_product_template_ids"
                                 options="{'no_create': True, 'no_create_edit': True}"
+                                context="{'tree_view_ref': 'pinout_device_registry.pinout_bundle_product_template_selection_view_tree', 'search_view_ref': 'pinout_device_registry.pinout_bundle_product_template_selection_view_search'}"
                             >
                                 <tree>
                                     <field name="default_code" optional="show"/>

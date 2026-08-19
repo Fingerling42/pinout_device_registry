@@ -34,6 +34,10 @@ class PinoutDeviceBundle(models.Model):
         related="bundle_type_id.requires_kit_bom",
         readonly=True,
     )
+    bundle_type_allows_any_product_form = fields.Boolean(
+        related="bundle_type_id.allow_any_product_form",
+        readonly=True,
+    )
     state = fields.Selection(
         [
             ("draft", "Draft"),
@@ -178,7 +182,7 @@ class PinoutDeviceBundle(models.Model):
             allowed_templates = bundle.allowed_product_template_ids
             if (
                 bundle.bundle_product_id
-                and allowed_templates
+                and not bundle.bundle_type_id.allow_any_product_form
                 and bundle.bundle_product_id.product_tmpl_id not in allowed_templates
             ):
                 raise ValidationError(
@@ -287,7 +291,7 @@ class PinoutDeviceBundle(models.Model):
         allowed_templates = self.allowed_product_template_ids
         if (
             self.bundle_product_id
-            and allowed_templates
+            and not self.bundle_type_id.allow_any_product_form
             and self.bundle_product_id.product_tmpl_id not in allowed_templates
         ):
             result["warning"] = {
@@ -300,12 +304,9 @@ class PinoutDeviceBundle(models.Model):
         return result
 
     def _get_bundle_product_domain(self):
-        domain = []
-        if self.allowed_product_template_ids:
-            domain.append(
-                ("product_tmpl_id", "in", self.allowed_product_template_ids.ids)
-            )
-        return domain
+        if self.bundle_type_id.allow_any_product_form:
+            return []
+        return [("product_tmpl_id", "in", self.allowed_product_template_ids.ids)]
 
     def _get_kit_bom(self):
         self.ensure_one()

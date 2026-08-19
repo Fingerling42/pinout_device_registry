@@ -42,6 +42,7 @@ class TestPinoutDeviceBundleType(TransactionCase):
             {
                 "name": "Configurable Generic Type",
                 "code": "CONFIG-GENERIC",
+                "allow_any_product_form": True,
                 "requires_kit_bom": False,
             }
         )
@@ -105,6 +106,39 @@ class TestPinoutDeviceBundleType(TransactionCase):
         self.assertFalse(empty_bundle.bundle_product_id)
         self.assertEqual(product_bundle.bundle_product_id, self.other_product)
 
+    def test_empty_restricted_type_rejects_product(self):
+        restricted_type = self.env["pinout.device.bundle.type"].create(
+            {
+                "name": "Empty Restricted Type",
+                "code": "EMPTY-RESTRICTED",
+                "requires_kit_bom": False,
+            }
+        )
+
+        with self.assertRaisesRegex(ValidationError, "is not allowed"):
+            self.env["pinout.device.bundle"].create(
+                {
+                    "name": "EMPTY-RESTRICTED-PRODUCT",
+                    "bundle_type_id": restricted_type.id,
+                    "bundle_product_id": self.other_product.id,
+                }
+            )
+
+    def test_removing_used_product_form_is_rejected(self):
+        self.env["pinout.device.bundle"].create(
+            {
+                "name": "USED-PRODUCT-FORM",
+                "bundle_type_id": self.kit_type.id,
+                "bundle_product_id": self.allowed_kit.id,
+            }
+        )
+
+        with (
+            self.assertRaisesRegex(ValidationError, "is not allowed"),
+            self.env.cr.savepoint(),
+        ):
+            self.kit_type.allowed_product_template_ids = [Command.clear()]
+
     def test_type_change_keeps_incompatible_product_visible(self):
         restricted_type = self.env["pinout.device.bundle.type"].create(
             {
@@ -132,3 +166,10 @@ class TestPinoutDeviceBundleType(TransactionCase):
             result["domain"]["bundle_product_id"],
             [("product_tmpl_id", "in", [self.allowed_kit.product_tmpl_id.id])],
         )
+
+    def test_allow_any_product_form_removes_product_domain(self):
+        bundle = self.env["pinout.device.bundle"].new(
+            {"bundle_type_id": self.generic_type.id}
+        )
+
+        self.assertEqual(bundle._get_bundle_product_domain(), [])

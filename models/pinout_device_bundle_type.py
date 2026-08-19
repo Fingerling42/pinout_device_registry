@@ -13,7 +13,11 @@ class PinoutDeviceBundleType(models.Model):
     allowed_product_template_ids = fields.Many2many(
         "product.template",
         string="Allowed Bundle Product Forms",
-        help="Product templates that can represent bundles of this type. Leave empty to allow all bundle products.",
+        help="Product templates that can represent bundles of this type.",
+    )
+    allow_any_product_form = fields.Boolean(
+        string="Allow Any Product Form",
+        help="Allow any product template to represent this bundle type. When disabled, only Product Forms listed below are allowed.",
     )
     requires_kit_bom = fields.Boolean(
         string="Requires Kit BoM",
@@ -30,7 +34,11 @@ class PinoutDeviceBundleType(models.Model):
         ),
     ]
 
-    @api.constrains("requires_kit_bom", "allowed_product_template_ids")
+    @api.constrains(
+        "requires_kit_bom",
+        "allow_any_product_form",
+        "allowed_product_template_ids",
+    )
     def _check_existing_bundles(self):
         bundles = self.env["pinout.device.bundle"].search(
             [("bundle_type_id", "in", self.ids)]

@@ -54,9 +54,10 @@
                             />
                             <field name="allowed_product_template_ids" invisible="1"/>
                             <field name="bundle_type_requires_kit_bom" invisible="1"/>
+                            <field name="bundle_type_allows_any_product_form" invisible="1"/>
                             <field
                                 name="bundle_product_id"
-                                domain="[('product_tmpl_id', 'in', allowed_product_template_ids)] if allowed_product_template_ids else []"
+                                domain="[] if bundle_type_allows_any_product_form else [('product_tmpl_id', 'in', allowed_product_template_ids)]"
                                 required="bundle_type_requires_kit_bom"
                                 options="{'no_create': True, 'no_create_edit': True}"
                             />
