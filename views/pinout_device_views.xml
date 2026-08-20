@@ -20,6 +20,8 @@
                 <field name="mac" optional="hide"/>
                 <field name="robonomics_device_address" optional="hide"/>
                 <field name="subscription_owner_address" optional="hide"/>
+                <field name="create_date" optional="hide"/>
+                <field name="write_date" optional="hide"/>
             </tree>
         </field>
     </record>
