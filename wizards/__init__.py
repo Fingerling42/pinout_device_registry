@@ -1,1 +1,2 @@
 from . import pinout_device_batch_update_wizard
+from . import pinout_device_bundle_historical_wizard

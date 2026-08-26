@@ -15,6 +15,9 @@ class PinoutDeviceBundle(models.Model):
     _order = "name, id"
     _state_transition_context: ClassVar[str] = "pinout_bundle_state_transition"
     _pairing_update_context: ClassVar[str] = "pinout_bundle_pairing_update"
+    _historical_reconstruction_context: ClassVar[str] = (
+        "pinout_bundle_historical_reconstruction"
+    )
     _locked_pairing_fields: ClassVar[frozenset[str]] = frozenset(
         {"bundle_type_id", "bundle_product_id", "device_ids"}
     )
@@ -65,6 +68,16 @@ class PinoutDeviceBundle(models.Model):
         default="draft",
         required=True,
         tracking=True,
+    )
+    historically_reconstructed = fields.Boolean(
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help="This pairing was reconstructed after its Devices had already been sold or returned.",
+    )
+    historical_reconstruction_undo_allowed = fields.Boolean(
+        readonly=True,
+        copy=False,
     )
     bundle_product_id = fields.Many2one(
         "product.product",
@@ -511,6 +524,7 @@ class PinoutDeviceBundle(models.Model):
                     "Returned bundle was prepared for resale with the same "
                     "physical pairing."
                 ),
+                extra_values={"historical_reconstruction_undo_allowed": False},
             )
         self._sync_reservation_state()
         return True
@@ -565,14 +579,15 @@ class PinoutDeviceBundle(models.Model):
                     )
                 )
 
-    def _is_composition_complete(self):
+    def _is_composition_complete(self, devices=None):
         self.ensure_one()
-        if not self.device_ids:
+        devices = self.device_ids if devices is None else devices
+        if not devices:
             return False
         expected_quantities = self._get_expected_component_quantities()
         if not expected_quantities:
             return not self.bundle_type_id.requires_kit_bom
-        rows = self._get_component_checklist_rows()
+        rows = self._get_component_checklist_rows(devices)
         return bool(rows) and all(row["status"] == "complete" for row in rows)
 
     @api.constrains("bundle_type_id", "bundle_product_id")
@@ -615,78 +630,95 @@ class PinoutDeviceBundle(models.Model):
 
     def _validate_bundle_devices(self):
         self._check_bundle_configuration()
-        blocked_states = self._get_blocked_device_states()
         for bundle in self:
-            if not bundle.bundle_product_id:
-                continue
+            bundle._validate_device_selection(
+                bundle.device_ids,
+                allow_historical=self.env.context.get(
+                    self._historical_reconstruction_context
+                ),
+            )
 
-            expected_quantities = bundle._get_expected_component_quantities()
-            if not expected_quantities:
-                if bundle.bundle_type_id.requires_kit_bom:
-                    raise ValidationError(
-                        _(
-                            "Bundle product %(product)s must have an active Kit BoM with component lines.",
-                            product=bundle.bundle_product_id.display_name,
-                        )
-                    )
-                continue
+    def _validate_device_selection(self, devices, *, allow_historical=False):
+        self.ensure_one()
+        if not self.bundle_product_id:
+            return
 
-            actual_quantities = defaultdict(float)
-            for device in bundle.device_ids:
-                if bundle.state == "draft" and device.state in blocked_states:
-                    raise ValidationError(
-                        _(
-                            "Device %(device)s cannot be added to a bundle because it is %(state)s.",
-                            device=device.device_uid,
-                            state=dict(device._fields["state"].selection).get(
-                                device.state, device.state
-                            ),
-                        )
+        expected_quantities = self._get_expected_component_quantities()
+        if not expected_quantities:
+            if self.bundle_type_id.requires_kit_bom:
+                raise ValidationError(
+                    _(
+                        "Bundle product %(product)s must have an active Kit BoM with component lines.",
+                        product=self.bundle_product_id.display_name,
                     )
-                if bundle.state == "draft" and device.last_delivery_id:
-                    raise ValidationError(
-                        _(
-                            "Device %(device)s cannot be added to a bundle because it was already delivered in %(delivery)s.",
-                            device=device.device_uid,
-                            delivery=device.last_delivery_id.display_name,
-                        )
-                    )
-                if not device.current_product_id:
-                    raise ValidationError(
-                        _(
-                            "Device %(device)s must have Current Product / Current Form before it can be added to a bundle.",
-                            device=device.device_uid,
-                        )
-                    )
-                if device.current_product_id not in expected_quantities:
-                    raise ValidationError(
-                        _(
-                            "Device %(device)s has product %(product)s, which is not expected by the Kit BoM of %(bundle)s.",
-                            device=device.device_uid,
-                            product=device.current_product_id.display_name,
-                            bundle=bundle.bundle_product_id.display_name,
-                        )
-                    )
-                actual_quantities[device.current_product_id] += 1.0
+                )
+            return
 
-            for product, actual_quantity in actual_quantities.items():
-                expected_quantity = expected_quantities[product]
-                if (
-                    float_compare(
-                        actual_quantity,
-                        expected_quantity,
-                        precision_rounding=product.uom_id.rounding,
+        blocked_states = self._get_blocked_device_states()
+        actual_quantities = defaultdict(float)
+        for device in devices:
+            if (
+                self.state == "draft"
+                and not allow_historical
+                and device.state in blocked_states
+            ):
+                raise ValidationError(
+                    _(
+                        "Device %(device)s cannot be added to a bundle because it is %(state)s.",
+                        device=device.device_uid,
+                        state=dict(device._fields["state"].selection).get(
+                            device.state, device.state
+                        ),
                     )
-                    > 0
-                ):
-                    raise ValidationError(
-                        _(
-                            "Bundle %(bundle)s can contain at most %(qty)s x %(product)s according to its Kit BoM.",
-                            bundle=bundle.name,
-                            qty=self._format_quantity(expected_quantity),
-                            product=product.display_name,
-                        )
+                )
+            if (
+                self.state == "draft"
+                and not allow_historical
+                and device.last_delivery_id
+            ):
+                raise ValidationError(
+                    _(
+                        "Device %(device)s cannot be added to a bundle because it was already delivered in %(delivery)s.",
+                        device=device.device_uid,
+                        delivery=device.last_delivery_id.display_name,
                     )
+                )
+            if not device.current_product_id:
+                raise ValidationError(
+                    _(
+                        "Device %(device)s must have Current Product / Current Form before it can be added to a bundle.",
+                        device=device.device_uid,
+                    )
+                )
+            if device.current_product_id not in expected_quantities:
+                raise ValidationError(
+                    _(
+                        "Device %(device)s has product %(product)s, which is not expected by the Kit BoM of %(bundle)s.",
+                        device=device.device_uid,
+                        product=device.current_product_id.display_name,
+                        bundle=self.bundle_product_id.display_name,
+                    )
+                )
+            actual_quantities[device.current_product_id] += 1.0
+
+        for product, actual_quantity in actual_quantities.items():
+            expected_quantity = expected_quantities[product]
+            if (
+                float_compare(
+                    actual_quantity,
+                    expected_quantity,
+                    precision_rounding=product.uom_id.rounding,
+                )
+                > 0
+            ):
+                raise ValidationError(
+                    _(
+                        "Bundle %(bundle)s can contain at most %(qty)s x %(product)s according to its Kit BoM.",
+                        bundle=self.name,
+                        qty=self._format_quantity(expected_quantity),
+                        product=product.display_name,
+                    )
+                )
 
     def _get_blocked_device_states(self):
         return {"sold", "returned", "scrapped"}
@@ -742,11 +774,12 @@ class PinoutDeviceBundle(models.Model):
             quantities[line.product_id] += line_quantity
         return quantities
 
-    def _get_component_checklist_rows(self):
+    def _get_component_checklist_rows(self, devices=None):
         self.ensure_one()
+        devices = self.device_ids if devices is None else devices
         expected_quantities = self._get_expected_component_quantities()
         attached_devices_by_product = defaultdict(lambda: self.env["pinout.device"])
-        for device in self.device_ids.filtered("current_product_id"):
+        for device in devices.filtered("current_product_id"):
             attached_devices_by_product[device.current_product_id] |= device
 
         products = sorted(
@@ -908,3 +941,175 @@ class PinoutDeviceBundle(models.Model):
             }
         )
         return action
+
+    def action_open_historical_reconstruction(self):
+        self.ensure_one()
+        if self.state != "draft":
+            raise ValidationError(
+                _("Only a Draft bundle can be reconstructed from historical Devices.")
+            )
+        if self.device_ids:
+            raise ValidationError(
+                _(
+                    "Historical reconstruction requires an empty bundle. Remove "
+                    "the current Draft pairing first."
+                )
+            )
+        self._check_bundle_configuration()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Reconstruct Historical Bundle"),
+            "res_model": "pinout.device.bundle.historical.wizard",
+            "view_mode": "form",
+            "view_id": self.env.ref(
+                "pinout_device_registry.pinout_device_bundle_historical_wizard_view_form"
+            ).id,
+            "target": "new",
+            "context": {"default_bundle_id": self.id},
+        }
+
+    def _reconstruct_historical_bundle(self, devices):
+        self.ensure_one()
+        if self.state != "draft":
+            raise ValidationError(
+                _("Only a Draft bundle can be reconstructed from historical Devices.")
+            )
+        if self.device_ids:
+            raise ValidationError(
+                _(
+                    "Historical reconstruction requires an empty bundle. Remove "
+                    "the current Draft pairing first."
+                )
+            )
+        if not devices:
+            raise ValidationError(_("Select at least one historical Device."))
+
+        already_paired = devices.filtered("bundle_id")
+        if already_paired:
+            raise ValidationError(
+                _(
+                    "Every historical Device must be unpaired. Already paired: %(devices)s",
+                    devices=", ".join(already_paired.mapped("device_uid")),
+                )
+            )
+        invalid_states = devices.filtered(
+            lambda device: device.state not in {"sold", "returned"}
+        )
+        if invalid_states:
+            raise ValidationError(
+                _(
+                    "Historical reconstruction only accepts Sold or Returned "
+                    "Devices. Check: %(devices)s",
+                    devices=", ".join(invalid_states.mapped("device_uid")),
+                )
+            )
+
+        self._check_bundle_configuration()
+        self._validate_device_selection(devices, allow_historical=True)
+        if not self._is_composition_complete(devices):
+            raise ValidationError(
+                _(
+                    "Selected Devices must exactly complete Expected Components "
+                    "before the historical bundle can be reconstructed."
+                )
+            )
+        history_complete = self._check_historical_sales_consistency(devices)
+
+        devices.with_context(
+            **{
+                self._pairing_update_context: True,
+                self._historical_reconstruction_context: True,
+            }
+        ).write({"bundle_id": self.id})
+        reconstructed_state = self._get_historical_reconstruction_state(devices)
+        device_uids = Markup("<br>").join(
+            escape(uid) for uid in devices.sorted("device_uid").mapped("device_uid")
+        )
+        if history_complete:
+            history_message = _(
+                "All Devices reference the same Customer, Sale Order and Delivery."
+            )
+        else:
+            history_message = _(
+                "Some or all source sales documents are unavailable. The pairing "
+                "was accepted as a manual historical record."
+            )
+        self._set_lifecycle_state(
+            reconstructed_state,
+            _(
+                "Historical bundle was reconstructed and set to %(state)s."
+                "<br>Device UIDs:<br>%(devices)s"
+                "<br>Sales history: %(history)s"
+            ),
+            extra_values={
+                "historically_reconstructed": True,
+                "historical_reconstruction_undo_allowed": True,
+            },
+            message_values={
+                "devices": device_uids,
+                "history": escape(history_message),
+            },
+        )
+        return True
+
+    def _check_historical_sales_consistency(self, devices):
+        self.ensure_one()
+        history_complete = True
+        for field_name, label in (
+            ("last_customer_id", _("Customer")),
+            ("last_sale_order_id", _("Sale Order")),
+            ("last_delivery_id", _("Delivery")),
+        ):
+            values = devices.mapped(field_name)
+            if len(values) > 1:
+                raise ValidationError(
+                    _(
+                        "Selected Devices reference different %(document_type)s "
+                        "records and cannot be reconstructed as one historical bundle.",
+                        document_type=label,
+                    )
+                )
+            if any(not device[field_name] for device in devices):
+                history_complete = False
+        return history_complete
+
+    def _get_historical_reconstruction_state(self, devices):
+        self.ensure_one()
+        returned_count = len(
+            devices.filtered(lambda device: device.state == "returned")
+        )
+        if not returned_count:
+            return "sold"
+        if returned_count == len(devices):
+            return "returned"
+        return "partially_returned"
+
+    def action_undo_historical_reconstruction(self):
+        for bundle in self:
+            if (
+                not bundle.historical_reconstruction_undo_allowed
+                or bundle.state
+                not in {
+                    "sold",
+                    "partially_returned",
+                    "returned",
+                }
+            ):
+                raise ValidationError(
+                    _("Only an active historical reconstruction can be undone.")
+                )
+            device_uids = bundle.device_ids.sorted("device_uid").mapped("device_uid")
+            previous_devices = Markup("<br>").join(escape(uid) for uid in device_uids)
+            bundle.device_ids.with_context(
+                **{self._pairing_update_context: True}
+            ).write({"bundle_id": False})
+            bundle._set_lifecycle_state(
+                "cancelled",
+                _(
+                    "Historical reconstruction was undone and its Devices were "
+                    "unpaired. Previously attached Device UIDs:<br>%(devices)s"
+                ),
+                extra_values={"historical_reconstruction_undo_allowed": False},
+                message_values={"devices": previous_devices},
+            )
+        return True
