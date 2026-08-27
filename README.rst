@@ -22,6 +22,8 @@ Features
   Current Product / Current Form.
 * Keep existing Final Lot links visible when identity fields become
   incompatible, so they cannot be lost silently.
+* Preserve every previously used final lot or serial in Device history after
+  the active Final Lot is cleared or replaced.
 * Derive the last customer, Sale Order, delivery, and customer order reference
   from completed stock moves.
 * Update Device state automatically for completed sales, returns, and scrap
@@ -79,6 +81,10 @@ When the device becomes a finished retail unit, assign its Final Lot / Serial.
 The serial number must exactly match Device UID and belong to the selected
 Current Product. Completed deliveries, returns, and scrap operations update
 unambiguous Device states automatically.
+
+Current Final Lot / Serial represents only the active serial of the current
+retail form. Clearing it keeps the Odoo lot, its Product, stock traceability,
+and sales metadata in the Device's Final Lot History.
 
 Select multiple records in the Device list and use Batch Update to change only
 the selected fields together.

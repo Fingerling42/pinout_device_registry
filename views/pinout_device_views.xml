@@ -34,7 +34,7 @@
                 <header>
                     <button
                         name="action_open_final_lot"
-                        string="Open Final Lot"
+                        string="Open Current Final Lot"
                         type="object"
                         class="btn-secondary"
                         invisible="not final_lot_id"
@@ -104,7 +104,7 @@
                             <field name="physical_location_note"/>
                         </group>
                     </group>
-                    <group string="Final Lot / Serial">
+                    <group string="Current Final Lot / Serial">
                         <group>
                             <field
                                 name="final_lot_id"
@@ -129,6 +129,19 @@
                                 <field name="last_delivery_id" readonly="1"/>
                                 <field name="last_order_reference" readonly="1"/>
                             </group>
+                        </page>
+                        <page string="Final Lot History" name="final_lot_history">
+                            <field name="final_lot_history_ids" readonly="1">
+                                <tree create="false" delete="false" edit="false">
+                                    <field name="name" string="Lot / Serial"/>
+                                    <field name="product_id"/>
+                                    <field name="pinout_is_current_device_lot"/>
+                                    <field name="product_qty" string="On Hand"/>
+                                    <field name="location_id"/>
+                                    <field name="last_delivery_partner_id" optional="hide"/>
+                                    <field name="create_date" optional="hide"/>
+                                </tree>
+                            </field>
                         </page>
                         <page string="Notes" name="notes">
                             <field name="notes" nolabel="1"/>
@@ -174,8 +187,8 @@
                 <filter string="Quality: Needs Test" name="quality_needs_test" domain="[('quality_status', '=', 'needs_test')]"/>
                 <filter string="Quality: Failed" name="quality_failed" domain="[('quality_status', '=', 'failed')]"/>
                 <separator/>
-                <filter string="Has Final Lot" name="has_final_lot" domain="[('final_lot_id', '!=', False)]"/>
-                <filter string="Without Final Lot" name="without_final_lot" domain="[('final_lot_id', '=', False)]"/>
+                <filter string="Has Current Final Lot" name="has_final_lot" domain="[('final_lot_id', '!=', False)]"/>
+                <filter string="Without Current Final Lot" name="without_final_lot" domain="[('final_lot_id', '=', False)]"/>
                 <filter string="Has Bundle" name="has_bundle" domain="[('bundle_id', '!=', False)]"/>
                 <filter string="Without Bundle" name="without_bundle" domain="[('bundle_id', '=', False)]"/>
                 <filter string="Has Robonomics Address" name="has_robonomics_address" domain="[('robonomics_device_address', '!=', False)]"/>

@@ -179,6 +179,69 @@ class TestPinoutDeviceSalesData(TransactionCase):
         self.assertEqual(device.last_delivery_id, delivery)
         self.assertEqual(device.last_order_reference, "CUSTOMER-NORMAL-REFERENCE")
 
+        device.final_lot_id = False
+
+        self.assertEqual(device.final_lot_history_ids, self.normal_lot)
+        self.assertEqual(device.last_customer_id, self.partner)
+        self.assertEqual(device.last_sale_order_id, sale_order)
+        self.assertEqual(device.last_delivery_id, delivery)
+        self.assertEqual(device.last_order_reference, "CUSTOMER-NORMAL-REFERENCE")
+
+    def test_latest_sales_metadata_uses_all_historical_lots(self):
+        first_sale_order = self._create_sale_order(self.normal_product)
+        self._complete_sale_delivery(first_sale_order, self.normal_device)
+
+        replacement_product = self.env["product.product"].create(
+            {
+                "name": "Device Sales Metadata Replacement Retail Unit",
+                "type": "product",
+                "tracking": "serial",
+            }
+        )
+        self.device_type.allowed_product_template_ids = [
+            Command.link(replacement_product.product_tmpl_id.id)
+        ]
+        replacement_lot = self.env["stock.lot"].create(
+            {
+                "name": self.normal_device.device_uid,
+                "product_id": replacement_product.id,
+                "company_id": self.env.company.id,
+                "pinout_device_id": self.normal_device.id,
+            }
+        )
+        self.env["stock.quant"]._update_available_quantity(
+            replacement_product,
+            self.stock_location,
+            1,
+            lot_id=replacement_lot,
+        )
+        self.normal_device.write(
+            {
+                "current_product_id": replacement_product.id,
+                "final_lot_id": replacement_lot.id,
+            }
+        )
+
+        latest_sale_order = self._create_sale_order(
+            replacement_product,
+            reference="LATEST-HISTORICAL-REFERENCE",
+        )
+        latest_delivery = self._complete_sale_delivery(
+            latest_sale_order, self.normal_device
+        )
+        self.normal_device.final_lot_id = False
+
+        self.assertEqual(
+            set(self.normal_device.final_lot_history_ids.ids),
+            {self.normal_lot.id, replacement_lot.id},
+        )
+        self.assertEqual(self.normal_device.last_sale_order_id, latest_sale_order)
+        self.assertEqual(self.normal_device.last_delivery_id, latest_delivery)
+        self.assertEqual(
+            self.normal_device.last_order_reference,
+            "LATEST-HISTORICAL-REFERENCE",
+        )
+
     def test_kit_sale_populates_component_devices_and_bundle_metadata(self):
         sale_order = self._create_sale_order(self.kit_product)
         delivery = self._complete_sale_delivery(sale_order, self.kit_devices)
