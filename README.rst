@@ -28,6 +28,8 @@ Features
   from completed stock moves.
 * Update Device state automatically for completed sales, returns, and scrap
   operations.
+* Link standard Unbuild Orders to Registry Devices and validate physical
+  identity before disassembly.
 * Update selected Device fields in batches.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
@@ -88,6 +90,23 @@ and sales metadata in the Device's Final Lot History.
 
 Select multiple records in the Device list and use Batch Update to change only
 the selected fields together.
+
+Unbuild Orders
+~~~~~~~~~~~~~~
+
+Open ``Manufacturing -> Operations -> Unbuild Orders`` and select the Product
+being disassembled. For a tracked final Product, selecting its current Lot /
+Serial Number automatically identifies the Registry Device. For an untracked
+intermediate Product Form, select the Registry Device manually.
+
+A registry-managed Unbuild Order must process exactly one Device. Its Product
+must match Current Product / Current Form, the selected final lot must be the
+Device's current Final Lot, and the Device must first be released from any
+Bundle with Cancel and Unpair.
+
+This integration currently validates and records the Device on the Unbuild
+Order. Updating Current Product, state, quality, location, and the active Final
+Lot after completion remains a separate workflow step.
 
 Bundles
 ~~~~~~~
