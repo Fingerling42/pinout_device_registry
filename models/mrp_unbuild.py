@@ -1,3 +1,4 @@
+from markupsafe import Markup, escape
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools import float_compare
@@ -240,33 +241,40 @@ class MrpUnbuild(models.Model):
         )
 
         if previous_lot:
-            lot_note = _(
-                "Current Final Lot / Serial %(lot)s was cleared and retained "
-                "in Final Lot History.",
-                lot=previous_lot.display_name,
-            )
+            lot_note = Markup(
+                _(
+                    "Current Final Lot / Serial %(lot)s was cleared and retained "
+                    "in Final Lot History."
+                )
+            ) % {"lot": escape(previous_lot.display_name)}
         else:
-            lot_note = _("No active Final Lot / Serial needed to be cleared.")
+            lot_note = escape(_("No active Final Lot / Serial needed to be cleared."))
+        device_message = _(
+            "Device Registry was synchronized after %(unbuild)s.<br>"
+            "Current Product / Current Form: %(previous_product)s to "
+            "%(next_product)s.<br>State: Rework.<br>Quality Status: "
+            "Needs Test.<br>Odoo Location: %(location)s.<br>%(lot_note)s"
+        )
         device.message_post(
-            body=_(
-                "Device Registry was synchronized after %(unbuild)s.<br>"
-                "Current Product / Current Form: %(previous_product)s to "
-                "%(next_product)s.<br>State: Rework.<br>Quality Status: "
-                "Needs Test.<br>Odoo Location: %(location)s.<br>%(lot_note)s",
-                unbuild=self._get_html_link(),
-                previous_product=previous_product.display_name,
-                next_product=next_product.display_name,
-                location=self.location_dest_id.display_name,
-                lot_note=lot_note,
-            ),
+            body=Markup(device_message)
+            % {
+                "unbuild": self._get_html_link(),
+                "previous_product": escape(previous_product.display_name),
+                "next_product": escape(next_product.display_name),
+                "location": escape(self.location_dest_id.display_name),
+                "lot_note": lot_note,
+            },
             subtype_xmlid="mail.mt_note",
         )
+        unbuild_message = _(
+            "Registry Device %(device)s was synchronized to Product Form "
+            "%(product)s after this Unbuild Order."
+        )
         self.message_post(
-            body=_(
-                "Registry Device %(device)s was synchronized to Product Form "
-                "%(product)s after this Unbuild Order.",
-                device=device._get_html_link(),
-                product=next_product.display_name,
-            ),
+            body=Markup(unbuild_message)
+            % {
+                "device": device._get_html_link(),
+                "product": escape(next_product.display_name),
+            },
             subtype_xmlid="mail.mt_note",
         )

@@ -162,12 +162,13 @@ class TestPinoutDeviceUnbuild(TransactionCase):
         self.assertFalse(self.device.final_lot_id)
         self.assertEqual(self.device.final_lot_history_ids, self.lot)
         self.assertEqual(self.lot.pinout_device_id, self.device)
-        self.assertTrue(
-            any(
-                "Device Registry was synchronized after" in body
-                for body in self.device.message_ids.mapped("body")
-            )
+        device_message = next(
+            body
+            for body in self.device.message_ids.mapped("body")
+            if "Device Registry was synchronized after" in body
         )
+        self.assertIn("<br>", device_message)
+        self.assertNotIn("&lt;br&gt;", device_message)
         self.assertTrue(
             any(
                 "Registry Device" in body and "was synchronized" in body
