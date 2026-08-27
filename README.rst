@@ -104,9 +104,11 @@ must match Current Product / Current Form, the selected final lot must be the
 Device's current Final Lot, and the Device must first be released from any
 Bundle with Cancel and Unpair.
 
-This integration currently validates and records the Device on the Unbuild
-Order. Updating Current Product, state, quality, location, and the active Final
-Lot after completion remains a separate workflow step.
+After a successful Unbuild, the addon finds exactly one resulting Product Form
+allowed for the Device Type. It updates Current Product / Current Form, sets
+State to Rework and Quality Status to Needs Test, records the destination
+location, and clears only the active Final Lot while preserving its history.
+The operation is rejected if the BoM produces no unique next Product Form.
 
 Bundles
 ~~~~~~~

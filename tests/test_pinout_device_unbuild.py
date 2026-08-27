@@ -22,6 +22,12 @@ class TestPinoutDeviceUnbuild(TransactionCase):
                 "type": "product",
             }
         )
+        cls.base_product = cls.env["product.product"].create(
+            {
+                "name": "Registry Unbuild Base Form",
+                "type": "product",
+            }
+        )
         cls.unmanaged_product = cls.env["product.product"].create(
             {
                 "name": "Unmanaged Unbuild Product",
@@ -44,6 +50,22 @@ class TestPinoutDeviceUnbuild(TransactionCase):
                 ],
             }
         )
+        cls.intermediate_bom = cls.env["mrp.bom"].create(
+            {
+                "product_tmpl_id": cls.intermediate_product.product_tmpl_id.id,
+                "product_id": cls.intermediate_product.id,
+                "product_qty": 1.0,
+                "type": "normal",
+                "bom_line_ids": [
+                    Command.create(
+                        {
+                            "product_id": cls.base_product.id,
+                            "product_qty": 1.0,
+                        }
+                    )
+                ],
+            }
+        )
         cls.device_type = cls.env["pinout.device.type"].create(
             {
                 "name": "Registry Unbuild Device Type",
@@ -53,6 +75,7 @@ class TestPinoutDeviceUnbuild(TransactionCase):
                         (
                             cls.tracked_product.product_tmpl_id
                             | cls.intermediate_product.product_tmpl_id
+                            | cls.base_product.product_tmpl_id
                         ).ids
                     )
                 ],
@@ -71,6 +94,8 @@ class TestPinoutDeviceUnbuild(TransactionCase):
                 "device_type_id": cls.device_type.id,
                 "current_product_id": cls.tracked_product.id,
                 "final_lot_id": cls.lot.id,
+                "state": "ready_for_sale",
+                "quality_status": "ok",
             }
         )
         cls.intermediate_device = cls.env["pinout.device"].create(
@@ -82,10 +107,14 @@ class TestPinoutDeviceUnbuild(TransactionCase):
         )
 
     def _create_unbuild(self, product, **values):
+        boms_by_product = {
+            self.tracked_product: self.bom,
+            self.intermediate_product: self.intermediate_bom,
+        }
         values.setdefault("product_id", product.id)
         values.setdefault("product_qty", 1.0)
         values.setdefault(
-            "bom_id", self.bom.id if product == self.tracked_product else False
+            "bom_id", boms_by_product.get(product, self.env["mrp.bom"]).id
         )
         values.setdefault("location_id", self.stock_location.id)
         values.setdefault("location_dest_id", self.stock_location.id)
@@ -113,7 +142,7 @@ class TestPinoutDeviceUnbuild(TransactionCase):
 
         self.assertEqual(unbuild.pinout_device_id, self.device)
 
-    def test_successful_unbuild_persists_device_detected_from_lot(self):
+    def test_tracked_unbuild_synchronizes_device_and_preserves_lot_history(self):
         self.env["stock.quant"]._update_available_quantity(
             self.tracked_product,
             self.stock_location,
@@ -126,6 +155,81 @@ class TestPinoutDeviceUnbuild(TransactionCase):
 
         self.assertEqual(unbuild.state, "done")
         self.assertEqual(unbuild.pinout_device_id, self.device)
+        self.assertEqual(self.device.current_product_id, self.intermediate_product)
+        self.assertEqual(self.device.state, "rework")
+        self.assertEqual(self.device.quality_status, "needs_test")
+        self.assertEqual(self.device.location_id, self.stock_location)
+        self.assertFalse(self.device.final_lot_id)
+        self.assertEqual(self.device.final_lot_history_ids, self.lot)
+        self.assertEqual(self.lot.pinout_device_id, self.device)
+        self.assertTrue(
+            any(
+                "Device Registry was synchronized after" in body
+                for body in self.device.message_ids.mapped("body")
+            )
+        )
+        self.assertTrue(
+            any(
+                "Registry Device" in body and "was synchronized" in body
+                for body in unbuild.message_ids.mapped("body")
+            )
+        )
+
+    def test_untracked_unbuild_synchronizes_device_to_next_form(self):
+        self.env["stock.quant"]._update_available_quantity(
+            self.intermediate_product,
+            self.stock_location,
+            1.0,
+        )
+        unbuild = self._create_unbuild(
+            self.intermediate_product,
+            pinout_device_id=self.intermediate_device.id,
+        )
+
+        unbuild.action_unbuild()
+
+        self.assertEqual(unbuild.state, "done")
+        self.assertEqual(self.intermediate_device.current_product_id, self.base_product)
+        self.assertEqual(self.intermediate_device.state, "rework")
+        self.assertEqual(self.intermediate_device.quality_status, "needs_test")
+        self.assertEqual(self.intermediate_device.location_id, self.stock_location)
+        self.assertFalse(self.intermediate_device.final_lot_id)
+
+    def test_unbuild_rejects_ambiguous_next_product_form(self):
+        other_component = self.env["product.product"].create(
+            {
+                "name": "Registry Unbuild Other Allowed Form",
+                "type": "product",
+            }
+        )
+        self.device_type.allowed_product_template_ids = [
+            Command.link(other_component.product_tmpl_id.id)
+        ]
+        self.bom.bom_line_ids = [
+            Command.create(
+                {
+                    "product_id": other_component.id,
+                    "product_qty": 1.0,
+                }
+            )
+        ]
+        self.env["stock.quant"]._update_available_quantity(
+            self.tracked_product,
+            self.stock_location,
+            1.0,
+            lot_id=self.lot,
+        )
+        unbuild = self._create_unbuild(self.tracked_product, lot_id=self.lot.id)
+
+        with (
+            self.assertRaisesRegex(UserError, "exactly one next Product Form"),
+            self.cr.savepoint(),
+        ):
+            unbuild.action_unbuild()
+
+        self.assertEqual(unbuild.state, "draft")
+        self.assertEqual(self.device.current_product_id, self.tracked_product)
+        self.assertEqual(self.device.final_lot_id, self.lot)
 
     def test_untracked_product_requires_manual_device(self):
         unbuild = self._create_unbuild(self.intermediate_product)

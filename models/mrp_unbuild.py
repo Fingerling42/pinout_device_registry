@@ -14,6 +14,7 @@ class MrpUnbuild(models.Model):
         "pinout.device",
         string="Registry Device",
         copy=False,
+        tracking=True,
         help=(
             "Physical Device Registry record being unbuilt. For tracked products "
             "it is detected from Lot / Serial Number. For untracked intermediate "
@@ -166,4 +167,106 @@ class MrpUnbuild(models.Model):
         device = self._validate_pinout_registry_unbuild()
         if device and self.pinout_device_id != device:
             self.pinout_device_id = device
-        return super().action_unbuild()
+        result = super().action_unbuild()
+        if device:
+            self._synchronize_pinout_device_after_unbuild(device)
+        return result
+
+    def _get_pinout_main_result_product(self, device):
+        self.ensure_one()
+        allowed_templates = device.device_type_id.allowed_product_template_ids
+        produced_moves = self.produce_line_ids.filtered(
+            lambda move: move.state == "done" and move.quantity > 0
+        )
+        candidate_moves = produced_moves.filtered(
+            lambda move: (
+                move.product_id != self.product_id
+                and move.product_id.product_tmpl_id in allowed_templates
+            )
+        )
+        candidates = candidate_moves.product_id
+        if len(candidates) != 1:
+            candidate_names = ", ".join(candidates.mapped("display_name")) or _("none")
+            raise UserError(
+                _(
+                    "Unbuild Order %(unbuild)s must produce exactly one next "
+                    "Product Form allowed for Device Type %(device_type)s. "
+                    "Found: %(products)s. Check the BoM and Allowed Product Forms.",
+                    unbuild=self.display_name,
+                    device_type=device.device_type_id.display_name,
+                    products=candidate_names,
+                )
+            )
+
+        product = candidates
+        produced_quantity = sum(
+            move.product_uom._compute_quantity(move.quantity, product.uom_id)
+            for move in candidate_moves.filtered(
+                lambda move: move.product_id == product
+            )
+        )
+        if (
+            float_compare(
+                produced_quantity,
+                1.0,
+                precision_rounding=product.uom_id.rounding,
+            )
+            != 0
+        ):
+            raise UserError(
+                _(
+                    "The next Product Form %(product)s must be produced in "
+                    "quantity 1 to preserve one physical Device identity. "
+                    "Produced quantity: %(quantity)s.",
+                    product=product.display_name,
+                    quantity=produced_quantity,
+                )
+            )
+        return product
+
+    def _synchronize_pinout_device_after_unbuild(self, device):
+        self.ensure_one()
+        previous_product = device.current_product_id
+        previous_lot = device.final_lot_id
+        next_product = self._get_pinout_main_result_product(device)
+        device.with_context(tracking_disable=True).write(
+            {
+                "current_product_id": next_product.id,
+                "state": "rework",
+                "quality_status": "needs_test",
+                "location_id": self.location_dest_id.id,
+                "final_lot_id": False,
+            }
+        )
+
+        if previous_lot:
+            lot_note = _(
+                "Current Final Lot / Serial %(lot)s was cleared and retained "
+                "in Final Lot History.",
+                lot=previous_lot.display_name,
+            )
+        else:
+            lot_note = _("No active Final Lot / Serial needed to be cleared.")
+        device.message_post(
+            body=_(
+                "Device Registry was synchronized after %(unbuild)s.<br>"
+                "Current Product / Current Form: %(previous_product)s to "
+                "%(next_product)s.<br>State: Rework.<br>Quality Status: "
+                "Needs Test.<br>Odoo Location: %(location)s.<br>%(lot_note)s",
+                unbuild=self._get_html_link(),
+                previous_product=previous_product.display_name,
+                next_product=next_product.display_name,
+                location=self.location_dest_id.display_name,
+                lot_note=lot_note,
+            ),
+            subtype_xmlid="mail.mt_note",
+        )
+        self.message_post(
+            body=_(
+                "Registry Device %(device)s was synchronized to Product Form "
+                "%(product)s after this Unbuild Order.",
+                device=device._get_html_link(),
+                product=next_product.display_name,
+            ),
+            subtype_xmlid="mail.mt_note",
+        )
