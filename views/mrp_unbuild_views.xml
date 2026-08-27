@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_unbuild_form_view_pinout_device" model="ir.ui.view">
+        <field name="name">mrp.unbuild.form.pinout.device</field>
+        <field name="model">mrp.unbuild</field>
+        <field name="inherit_id" ref="mrp.mrp_unbuild_form_view"/>
+        <field name="arch" type="xml">
+            <field name="lot_id" position="after">
+                <field name="pinout_registry_managed" invisible="1"/>
+                <field
+                    name="pinout_device_id"
+                    domain="[('current_product_id', '=', product_id), ('bundle_id', '=', False)]"
+                    invisible="not pinout_registry_managed and not pinout_device_id"
+                    readonly="state == 'done' or has_tracking != 'none'"
+                    force_save="1"
+                    options="{'no_create': True}"
+                />
+            </field>
+        </field>
+    </record>
+
+    <record id="mrp_unbuild_form_view_simplified_pinout_device" model="ir.ui.view">
+        <field name="name">mrp.unbuild.form.simplified.pinout.device</field>
+        <field name="model">mrp.unbuild</field>
+        <field name="inherit_id" ref="mrp.mrp_unbuild_form_view_simplified"/>
+        <field name="arch" type="xml">
+            <field name="lot_id" position="after">
+                <field name="pinout_registry_managed" invisible="1"/>
+                <field
+                    name="pinout_device_id"
+                    domain="[('current_product_id', '=', product_id), ('bundle_id', '=', False)]"
+                    invisible="not pinout_registry_managed and not pinout_device_id"
+                    readonly="state == 'done' or has_tracking != 'none'"
+                    force_save="1"
+                    options="{'no_create': True}"
+                />
+            </field>
+        </field>
+    </record>
+</odoo>

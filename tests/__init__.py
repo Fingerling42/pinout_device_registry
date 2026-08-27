@@ -9,3 +9,4 @@ from . import test_pinout_device_invariants
 from . import test_pinout_device_sales_data
 from . import test_pinout_device_state_sync
 from . import test_pinout_device_uid
+from . import test_pinout_device_unbuild

@@ -94,14 +94,21 @@ class PinoutDevice(models.Model):
 
     final_lot_id = fields.Many2one(
         "stock.lot",
-        string="Final Lot / Serial",
+        string="Current Final Lot / Serial",
         tracking=True,
         help=(
-            "Final Odoo stock lot/serial when the device becomes a retail unit. "
+            "Active Odoo stock lot/serial while the device is a retail unit. "
             "Only serials whose number exactly matches Device UID and whose Product "
             "matches Current Product / Current Form are available. Empty for WIP "
-            "stages."
+            "stages. Clearing this field keeps the lot in Final Lot History."
         ),
+    )
+    final_lot_history_ids = fields.One2many(
+        "stock.lot",
+        "pinout_device_id",
+        string="Final Lot History",
+        readonly=True,
+        help="All final Odoo lots/serials historically linked to this physical device.",
     )
     final_serial_name = fields.Char(
         compute="_compute_final_serial_name",
@@ -165,10 +172,33 @@ class PinoutDevice(models.Model):
                 )
             device.bundle_id._validate_bundle_devices()
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        devices = super().create(vals_list)
+        devices._link_current_final_lots_to_history()
+        return devices
+
     def write(self, vals):
         if not self.env.context.get(self._pairing_update_context):
             self._check_bundle_write_allowed(vals)
-        return super().write(vals)
+        result = super().write(vals)
+        if {"device_uid", "final_lot_id"}.intersection(vals):
+            self._link_current_final_lots_to_history()
+        return result
+
+    def _link_current_final_lots_to_history(self):
+        for device in self.filtered("final_lot_id"):
+            lot = device.final_lot_id
+            if lot.pinout_device_id and lot.pinout_device_id != device:
+                raise ValidationError(
+                    _(
+                        "Final Lot / Serial %(lot)s already belongs to Device %(device)s.",
+                        lot=lot.name,
+                        device=lot.pinout_device_id.device_uid,
+                    )
+                )
+            if not lot.pinout_device_id:
+                lot.pinout_device_id = device.id
 
     def _check_bundle_write_allowed(self, vals):
         if "bundle_id" in vals:
@@ -243,6 +273,22 @@ class PinoutDevice(models.Model):
                     )
                 )
 
+    @api.constrains("device_uid")
+    def _check_historical_lot_uids(self):
+        for device in self:
+            mismatched_lots = device.final_lot_history_ids.filtered(
+                lambda lot, device=device: lot.name != device.device_uid
+            )
+            if mismatched_lots:
+                raise ValidationError(
+                    _(
+                        "Device UID %(device)s does not match historical Lot / Serial "
+                        "%(lot)s. Historical serial links cannot be silently changed.",
+                        device=device.device_uid,
+                        lot=mismatched_lots[0].name,
+                    )
+                )
+
     @api.constrains("device_type_id", "current_product_id")
     def _check_current_product_allowed_for_device_type(self):
         for device in self.filtered("current_product_id"):
@@ -300,7 +346,7 @@ class PinoutDevice(models.Model):
                     summary_parts.append(product_attribute_value.name)
             device.variant_summary = " / ".join(summary_parts)
 
-    @api.depends("final_lot_id")
+    @api.depends("final_lot_id", "final_lot_history_ids")
     def _compute_last_sales_data(self):
         for device in self:
             device.last_customer_id = False
@@ -309,8 +355,10 @@ class PinoutDevice(models.Model):
             device.last_order_reference = False
 
         devices_by_lot = defaultdict(lambda: self.env["pinout.device"])
-        for device in self.filtered("final_lot_id"):
-            devices_by_lot[device.final_lot_id.id] |= device
+        for device in self:
+            device_lots = device.final_lot_history_ids | device.final_lot_id
+            for lot in device_lots:
+                devices_by_lot[lot.id] |= device
         if not devices_by_lot:
             return
 
@@ -324,7 +372,6 @@ class PinoutDevice(models.Model):
             order="date desc, id desc",
         )
 
-        latest_move_line_by_lot = {}
         sorted_move_lines = move_lines.sorted(
             key=lambda line: (
                 line.picking_id.date_done or line.picking_id.date or line.date,
@@ -332,15 +379,8 @@ class PinoutDevice(models.Model):
             ),
             reverse=True,
         )
+        resolved_device_ids = set()
         for move_line in sorted_move_lines:
-            lot_id = move_line.lot_id.id
-            if lot_id not in latest_move_line_by_lot:
-                latest_move_line_by_lot[lot_id] = move_line
-
-        for lot_id, devices in devices_by_lot.items():
-            move_line = latest_move_line_by_lot.get(lot_id)
-            if not move_line:
-                continue
             picking = move_line.picking_id
             sale_order = picking.sale_id
             last_order_reference = (
@@ -349,11 +389,14 @@ class PinoutDevice(models.Model):
                 or picking.origin
                 or False
             )
-            for device in devices:
+            for device in devices_by_lot[move_line.lot_id.id]:
+                if device.id in resolved_device_ids:
+                    continue
                 device.last_delivery_id = picking
                 device.last_customer_id = picking.partner_id
                 device.last_sale_order_id = sale_order
                 device.last_order_reference = last_order_reference
+                resolved_device_ids.add(device.id)
 
     def _sync_state_from_stock_moves(self):
         devices = self.filtered("final_lot_id")

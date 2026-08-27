@@ -22,10 +22,14 @@ Features
   Current Product / Current Form.
 * Keep existing Final Lot links visible when identity fields become
   incompatible, so they cannot be lost silently.
+* Preserve every previously used final lot or serial in Device history after
+  the active Final Lot is cleared or replaced.
 * Derive the last customer, Sale Order, delivery, and customer order reference
   from completed stock moves.
 * Update Device state automatically for completed sales, returns, and scrap
   operations.
+* Link standard Unbuild Orders to Registry Devices and validate physical
+  identity before disassembly.
 * Update selected Device fields in batches.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
@@ -80,8 +84,31 @@ The serial number must exactly match Device UID and belong to the selected
 Current Product. Completed deliveries, returns, and scrap operations update
 unambiguous Device states automatically.
 
+Current Final Lot / Serial represents only the active serial of the current
+retail form. Clearing it keeps the Odoo lot, its Product, stock traceability,
+and sales metadata in the Device's Final Lot History.
+
 Select multiple records in the Device list and use Batch Update to change only
 the selected fields together.
+
+Unbuild Orders
+~~~~~~~~~~~~~~
+
+Open ``Manufacturing -> Operations -> Unbuild Orders`` and select the Product
+being disassembled. For a tracked final Product, selecting its current Lot /
+Serial Number automatically identifies the Registry Device. For an untracked
+intermediate Product Form, select the Registry Device manually.
+
+A registry-managed Unbuild Order must process exactly one Device. Its Product
+must match Current Product / Current Form, the selected final lot must be the
+Device's current Final Lot, and the Device must first be released from any
+Bundle with Cancel and Unpair.
+
+After a successful Unbuild, the addon finds exactly one resulting Product Form
+allowed for the Device Type. It updates Current Product / Current Form, sets
+State to Rework and Quality Status to Needs Test, records the destination
+location, and clears only the active Final Lot while preserving its history.
+The operation is rejected if the BoM produces no unique next Product Form.
 
 Bundles
 ~~~~~~~

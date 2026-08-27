@@ -191,6 +191,86 @@ class TestPinoutDeviceBundleLifecycle(TransactionCase):
         picking._action_done()
         return picking
 
+    def _create_historical_bundle(self, suffix):
+        return self.env["pinout.device.bundle"].create(
+            {
+                "name": f"BUNDLE-HISTORICAL-{suffix}",
+                "bundle_type_id": self.bundle_type.id,
+                "bundle_product_id": self.kit_product.id,
+            }
+        )
+
+    def _create_historical_devices(self, suffix, states, *, with_lots=False):
+        values_list = []
+        for index, (product, state) in enumerate(
+            zip(self.components, states, strict=True), start=1
+        ):
+            uid = f"BUNDLE-HISTORICAL-{suffix}-{index:03d}"
+            values = {
+                "device_uid": uid,
+                "device_type_id": self.device_type.id,
+                "current_product_id": product.id,
+                "state": state,
+                "quality_status": "ok",
+            }
+            if with_lots:
+                lot = self.env["stock.lot"].create(
+                    {
+                        "name": uid,
+                        "product_id": product.id,
+                        "company_id": self.env.company.id,
+                    }
+                )
+                self.env["stock.quant"]._update_available_quantity(
+                    product,
+                    self.stock_location,
+                    1.0,
+                    lot_id=lot,
+                )
+                values["final_lot_id"] = lot.id
+            values_list.append(values)
+        return self.env["pinout.device"].create(values_list)
+
+    def _complete_historical_delivery(self, devices):
+        picking = self.env["stock.picking"].create(
+            {
+                "partner_id": self.partner.id,
+                "picking_type_id": self.outgoing_type.id,
+                "location_id": self.stock_location.id,
+                "location_dest_id": self.customer_location.id,
+            }
+        )
+        for device in devices:
+            product = device.current_product_id
+            self.env["stock.move"].create(
+                {
+                    "name": product.display_name,
+                    "product_id": product.id,
+                    "product_uom_qty": 1.0,
+                    "product_uom": product.uom_id.id,
+                    "picking_id": picking.id,
+                    "location_id": self.stock_location.id,
+                    "location_dest_id": self.customer_location.id,
+                    "picked": True,
+                    "move_line_ids": [
+                        Command.create(
+                            {
+                                "product_id": product.id,
+                                "product_uom_id": product.uom_id.id,
+                                "quantity": 1.0,
+                                "picking_id": picking.id,
+                                "location_id": self.stock_location.id,
+                                "location_dest_id": self.customer_location.id,
+                                "lot_id": device.final_lot_id.id,
+                                "picked": True,
+                            }
+                        )
+                    ],
+                }
+            )
+        picking._action_done()
+        return picking
+
     def test_ready_for_sale_requires_complete_qualified_devices(self):
         detached_device = self.devices[0]
         detached_device.bundle_id = False
@@ -318,3 +398,76 @@ class TestPinoutDeviceBundleLifecycle(TransactionCase):
         message_body = " ".join(self.bundle.message_ids.mapped("body"))
         for device in self.devices:
             self.assertIn(device.device_uid, message_body)
+
+    def test_historical_wizard_reconstructs_and_can_undo_sold_bundle(self):
+        bundle = self._create_historical_bundle("SOLD")
+        devices = self._create_historical_devices("SOLD", ["sold", "sold"])
+
+        action = bundle.action_open_historical_reconstruction()
+        self.assertEqual(action["res_model"], "pinout.device.bundle.historical.wizard")
+        wizard = self.env["pinout.device.bundle.historical.wizard"].create(
+            {
+                "bundle_id": bundle.id,
+                "device_ids": [Command.set(devices.ids)],
+            }
+        )
+        self.assertTrue(devices <= wizard.eligible_device_ids)
+        wizard.action_reconstruct()
+
+        self.assertEqual(bundle.state, "sold")
+        self.assertTrue(bundle.historically_reconstructed)
+        self.assertTrue(bundle.historical_reconstruction_undo_allowed)
+        self.assertEqual(bundle.device_ids, devices)
+        self.assertEqual(devices.bundle_id, bundle)
+        message_body = " ".join(bundle.message_ids.mapped("body"))
+        self.assertIn("manual historical record", message_body)
+
+        bundle.action_undo_historical_reconstruction()
+        self.assertEqual(bundle.state, "cancelled")
+        self.assertFalse(bundle.device_ids)
+        self.assertFalse(devices.bundle_id)
+        self.assertFalse(bundle.historical_reconstruction_undo_allowed)
+
+    def test_historical_reconstruction_derives_return_states(self):
+        scenarios = (
+            ("PARTIAL", ["sold", "returned"], "partially_returned"),
+            ("RETURNED", ["returned", "returned"], "returned"),
+        )
+        for suffix, states, expected_state in scenarios:
+            with self.subTest(expected_state=expected_state):
+                bundle = self._create_historical_bundle(suffix)
+                devices = self._create_historical_devices(suffix, states)
+                bundle._reconstruct_historical_bundle(devices)
+                self.assertEqual(bundle.state, expected_state)
+
+    def test_historical_reconstruction_requires_complete_composition(self):
+        bundle = self._create_historical_bundle("INCOMPLETE")
+        device = self.env["pinout.device"].create(
+            {
+                "device_uid": "BUNDLE-HISTORICAL-INCOMPLETE-001",
+                "device_type_id": self.device_type.id,
+                "current_product_id": self.components[0].id,
+                "state": "sold",
+                "quality_status": "ok",
+            }
+        )
+
+        with self.assertRaisesRegex(ValidationError, "exactly complete"):
+            bundle._reconstruct_historical_bundle(device)
+        self.assertFalse(bundle.device_ids)
+        self.assertFalse(device.bundle_id)
+
+    def test_historical_reconstruction_rejects_different_deliveries(self):
+        bundle = self._create_historical_bundle("DELIVERIES")
+        devices = self._create_historical_devices(
+            "DELIVERIES",
+            ["ready_for_sale", "ready_for_sale"],
+            with_lots=True,
+        )
+        self._complete_historical_delivery(devices[0])
+        self._complete_historical_delivery(devices[1])
+        self.assertEqual(set(devices.mapped("state")), {"sold"})
+
+        with self.assertRaisesRegex(ValidationError, "different Delivery"):
+            bundle._reconstruct_historical_bundle(devices)
+        self.assertFalse(bundle.device_ids)

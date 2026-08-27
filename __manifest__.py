@@ -1,6 +1,6 @@
 {
     "name": "Pinout Device Registry",
-    "version": "17.0.1.4.0",
+    "version": "17.0.1.8.1",
     "category": "Inventory/Manufacturing",
     "summary": "Generic hardware device registry for physical device identity, lifecycle, bundles, and final serial linkage",
     "author": "Pinout LTD",
@@ -21,7 +21,10 @@
         "data/pinout_device_bundle_type_data.xml",
         "views/pinout_device_type_views.xml",
         "views/pinout_device_bundle_type_views.xml",
+        "views/pinout_device_bundle_historical_wizard_views.xml",
         "views/pinout_device_bundle_views.xml",
+        "views/mrp_unbuild_views.xml",
+        "views/stock_lot_views.xml",
         "views/pinout_device_views.xml",
         "views/pinout_device_batch_update_wizard_views.xml",
         "views/menus.xml",

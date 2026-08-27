@@ -3,6 +3,7 @@ access_pinout_device_internal,pinout.device.internal,model_pinout_device,base.gr
 access_pinout_device_bundle_internal,pinout.device.bundle.internal,model_pinout_device_bundle,base.group_user,1,1,1,1
 access_pinout_device_bundle_type_internal,pinout.device.bundle.type.internal,model_pinout_device_bundle_type,base.group_user,1,1,1,1
 access_pinout_device_batch_update_wizard_internal,pinout.device.batch.update.wizard.internal,model_pinout_device_batch_update_wizard,base.group_user,1,1,1,0
+access_pinout_device_bundle_historical_wizard_internal,pinout.device.bundle.historical.wizard.internal,model_pinout_device_bundle_historical_wizard,base.group_user,1,1,1,0
 access_pinout_device_type_internal,pinout.device.type.internal,model_pinout_device_type,base.group_user,1,1,1,1
 access_pinout_device_type_attribute_line_internal,pinout.device.type.attribute.line.internal,model_pinout_device_type_attribute_line,base.group_user,1,1,1,1
 access_product_attribute_value_pinout_device_internal,product.attribute.value.pinout.device.internal,product.model_product_attribute_value,base.group_user,1,1,0,0
