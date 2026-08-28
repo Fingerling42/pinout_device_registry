@@ -30,6 +30,8 @@ Features
   operations.
 * Link standard Unbuild Orders to Registry Devices and validate physical
   identity before disassembly.
+* Link existing Registry Devices to Manufacturing Orders and validate the
+  physical Product Form transition against the BoM.
 * Update selected Device fields in batches.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
@@ -65,6 +67,10 @@ Create Device Types and select the Product Forms allowed for each type. Add the
 product attributes that should appear in Variant Summary and configure Variant
 Codes when short values such as ``BMGR / SML`` are useful.
 
+On each Product Form, configure Device State after Manufacturing. Use ``Do Not
+Change`` until the form should participate in automatic post-manufacturing
+synchronization.
+
 Create Bundle Types and configure their code, allowed Bundle Product Forms, and
 whether they require a Kit BoM. Kit products must have an active phantom BoM
 with the correct Apply on Variants values on component lines.
@@ -90,6 +96,27 @@ and sales metadata in the Device's Final Lot History.
 
 Select multiple records in the Device list and use Batch Update to change only
 the selected fields together.
+
+Manufacturing Orders
+~~~~~~~~~~~~~~~~~~~~
+
+Open ``Manufacturing -> Operations -> Manufacturing Orders`` and create the
+normal Odoo order with its Product, BoM, and quantity. Use the Device Registry
+tab to link the existing physical Devices represented by this order. Leaving
+the field empty preserves the standard Odoo manufacturing workflow.
+
+A linked order must use one Device Type, produce one of its allowed Product
+Forms, and consume exactly one common source Product Form per Device. The order
+quantity, source component quantity, and number of linked Devices must match.
+Each Device must currently have that source Product Form, be outside a Bundle,
+and not be Reserved, Sold, Scrapped, or linked to another active order.
+Serial-tracked outputs require a separate quantity-one order for each Device;
+untracked intermediate forms may use batch orders.
+
+This foundation records and validates the relationship. Completing a linked
+Manufacturing Order does not yet change Device fields or create a final serial;
+those actions remain explicit until post-manufacturing synchronization is
+enabled in a later version.
 
 Unbuild Orders
 ~~~~~~~~~~~~~~
