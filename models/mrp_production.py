@@ -114,6 +114,15 @@ class MrpProduction(models.Model):
             )
         )
 
+    def _get_pinout_serial_tracked_productions(self):
+        return self.filtered(
+            lambda production: (
+                production.pinout_device_ids
+                and production.product_id.tracking == "serial"
+                and production.state not in ("done", "cancel")
+            )
+        )
+
     def _validate_pinout_registry_device_configuration(self):
         self.ensure_one()
         devices = self.pinout_device_ids
@@ -204,6 +213,15 @@ class MrpProduction(models.Model):
                 )
             )
 
+        if self.product_id.tracking == "lot":
+            raise ValidationError(
+                _(
+                    "Registry-linked tracked output must use Tracking by Unique "
+                    "Serial Number. Tracking by Lots cannot preserve one Device UID "
+                    "per physical unit."
+                )
+            )
+
         if self.product_id.tracking == "serial" and len(devices) != 1:
             raise ValidationError(
                 _(
@@ -286,6 +304,101 @@ class MrpProduction(models.Model):
                     production=other_production.display_name,
                 )
             )
+
+    def _prepare_pinout_registry_serials(self):
+        lot_model = self.env["stock.lot"]
+        for production in self._get_pinout_serial_tracked_productions():
+            device = production.pinout_device_ids
+            selected_lot = production.lot_producing_id
+            if selected_lot and (
+                selected_lot.name != device.device_uid
+                or selected_lot.product_id != production.product_id
+                or selected_lot.company_id != production.company_id
+            ):
+                raise ValidationError(
+                    _(
+                        "Lot / Serial Number for Registry Device %(device)s must be "
+                        "named %(uid)s and belong to Product %(product)s in Company "
+                        "%(company)s.",
+                        device=device.display_name,
+                        uid=device.device_uid,
+                        product=production.product_id.display_name,
+                        company=production.company_id.display_name,
+                    )
+                )
+
+            expected_lot = lot_model.search(
+                [
+                    ("name", "=", device.device_uid),
+                    ("product_id", "=", production.product_id.id),
+                    ("company_id", "=", production.company_id.id),
+                ],
+                limit=1,
+            )
+            if selected_lot and expected_lot and selected_lot != expected_lot:
+                raise ValidationError(
+                    _(
+                        "Registry serial %(serial)s already exists for Product "
+                        "%(product)s. Use that serial instead of %(selected)s.",
+                        serial=expected_lot.display_name,
+                        product=production.product_id.display_name,
+                        selected=selected_lot.display_name,
+                    )
+                )
+
+            lot = selected_lot or expected_lot
+            if lot and lot.pinout_device_id and lot.pinout_device_id != device:
+                raise ValidationError(
+                    _(
+                        "Registry serial %(serial)s is already linked to another "
+                        "Device %(device)s.",
+                        serial=lot.display_name,
+                        device=lot.pinout_device_id.display_name,
+                    )
+                )
+            if lot and (
+                lot.product_qty or production._is_finished_sn_already_produced(lot)
+            ):
+                raise ValidationError(
+                    _(
+                        "Registry serial %(serial)s for Product %(product)s has "
+                        "already been produced and is not available for reuse. "
+                        "Complete the corresponding Unbuild or choose the correct "
+                        "Device before manufacturing it again.",
+                        serial=lot.display_name,
+                        product=production.product_id.display_name,
+                    )
+                )
+
+            created = not lot
+            if created:
+                lot = lot_model.create(
+                    {
+                        "name": device.device_uid,
+                        "product_id": production.product_id.id,
+                        "company_id": production.company_id.id,
+                    }
+                )
+            if production.lot_producing_id != lot:
+                production.lot_producing_id = lot
+                if created:
+                    message = _(
+                        "Registry Final Serial %(serial)s was created and prepared "
+                        "for Device %(device)s."
+                    )
+                else:
+                    message = _(
+                        "Existing Registry Final Serial %(serial)s was prepared for "
+                        "Device %(device)s."
+                    )
+                production.message_post(
+                    body=Markup(message)
+                    % {
+                        "serial": lot._get_html_link(),
+                        "device": device._get_html_link(),
+                    },
+                    subtype_xmlid="mail.mt_note",
+                )
 
     def _validate_pinout_untracked_completion(self):
         for production in self._get_pinout_untracked_productions():
@@ -474,10 +587,13 @@ class MrpProduction(models.Model):
 
     def action_confirm(self):
         self._validate_pinout_registry_devices()
-        return super().action_confirm()
+        result = super().action_confirm()
+        self._prepare_pinout_registry_serials()
+        return result
 
     def pre_button_mark_done(self):
         self._validate_pinout_registry_devices()
+        self._prepare_pinout_registry_serials()
         result = super().pre_button_mark_done()
         self._validate_pinout_untracked_completion()
         return result

@@ -33,6 +33,8 @@ Features
 * Link existing Registry Devices to Manufacturing Orders and validate the
   physical Product Form transition against the BoM.
 * Synchronize untracked manufacturing results back to linked Registry Devices.
+* Prepare tracked output serials from Device UID when a linked order is
+  confirmed.
 * Update selected Device fields in batches.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
@@ -127,8 +129,15 @@ identify which Device UIDs were completed. An active Final Lot must be cleared
 before producing another untracked form. Device and Manufacturing Order chatter
 record the synchronization.
 
-Tracked outputs are validated as quantity-one orders but are not synchronized
-and do not create or reuse a final serial yet.
+Tracked outputs are validated as quantity-one orders. On confirmation, the
+addon creates a Product serial named exactly like Device UID or safely reuses a
+matching existing serial. A manually selected conflicting serial, Tracking by
+Lots, an on-hand serial, or an uncompensated previously produced serial is
+rejected. The prepared serial is recorded in Manufacturing Order chatter.
+
+Preparation does not yet set Current Product / Current Form or Current Final
+Lot / Serial on the Device. Those links remain unchanged until tracked
+post-manufacturing synchronization is implemented.
 
 Unbuild Orders
 ~~~~~~~~~~~~~~

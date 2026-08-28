@@ -283,6 +283,122 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
         ):
             production.pinout_device_ids = [Command.set(devices.ids)]
 
+    def test_tracked_confirm_creates_registry_serial(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device()
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+
+        production.action_confirm()
+
+        lot = production.lot_producing_id
+        self.assertTrue(lot)
+        self.assertEqual(lot.name, device.device_uid)
+        self.assertEqual(lot.product_id, self.target_product)
+        self.assertFalse(lot.pinout_device_id)
+        self.assertEqual(device.current_product_id, self.source_product)
+        self.assertFalse(device.final_lot_id)
+        self.assertTrue(
+            production.message_ids.filtered(
+                lambda message: "was created and prepared" in message.body
+            )
+        )
+
+    def test_tracked_pre_done_prepares_serial_for_device_added_after_confirm(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device()
+        production = self._create_production()
+        production.action_confirm()
+        self.assertFalse(production.lot_producing_id)
+
+        production.pinout_device_ids = [Command.set(device.ids)]
+        production.pre_button_mark_done()
+
+        self.assertEqual(production.lot_producing_id.name, device.device_uid)
+        self.assertEqual(production.lot_producing_id.product_id, self.target_product)
+        self.assertFalse(device.final_lot_id)
+
+    def test_tracked_confirm_reuses_matching_registry_serial(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device()
+        lot = self.env["stock.lot"].create(
+            {
+                "name": device.device_uid,
+                "product_id": self.target_product.id,
+                "company_id": self.env.company.id,
+                "pinout_device_id": device.id,
+            }
+        )
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+
+        production.action_confirm()
+
+        self.assertEqual(production.lot_producing_id, lot)
+        self.assertTrue(
+            production.message_ids.filtered(
+                lambda message: "Existing Registry Final Serial" in message.body
+            )
+        )
+
+    def test_tracked_confirm_rejects_conflicting_selected_serial(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device()
+        wrong_lot = self.env["stock.lot"].create(
+            {
+                "name": "WRONG-REGISTRY-SERIAL",
+                "product_id": self.target_product.id,
+                "company_id": self.env.company.id,
+            }
+        )
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+        production.lot_producing_id = wrong_lot
+
+        with (
+            self.assertRaisesRegex(ValidationError, "must be named"),
+            self.cr.savepoint(),
+        ):
+            production.action_confirm()
+
+        self.assertEqual(production.state, "draft")
+        self.assertEqual(production.lot_producing_id, wrong_lot)
+
+    def test_lot_tracked_output_is_rejected(self):
+        self.target_template.tracking = "lot"
+        production = self._create_production()
+
+        with (
+            self.assertRaisesRegex(ValidationError, "Tracking by Lots"),
+            self.cr.savepoint(),
+        ):
+            production.pinout_device_ids = [Command.set(self._create_device().ids)]
+
+    def test_tracked_confirm_rejects_serial_already_in_stock(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device()
+        lot = self.env["stock.lot"].create(
+            {
+                "name": device.device_uid,
+                "product_id": self.target_product.id,
+                "company_id": self.env.company.id,
+            }
+        )
+        self.env["stock.quant"]._update_available_quantity(
+            self.target_product,
+            self.stock_location,
+            1.0,
+            lot_id=lot,
+        )
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+
+        with (
+            self.assertRaisesRegex(ValidationError, "not available for reuse"),
+            self.cr.savepoint(),
+        ):
+            production.action_confirm()
+
     def test_current_product_must_match_unique_bom_source_form(self):
         production = self._create_production()
         device = self._create_device(current_product_id=self.other_source_product.id)
