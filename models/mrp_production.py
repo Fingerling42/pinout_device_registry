@@ -1,5 +1,6 @@
 from typing import ClassVar
 
+from markupsafe import Markup, escape
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools import float_compare
@@ -104,6 +105,14 @@ class MrpProduction(models.Model):
         for production in self.filtered("pinout_device_ids"):
             production._validate_pinout_registry_device_configuration()
         return True
+
+    def _get_pinout_untracked_productions(self):
+        return self.filtered(
+            lambda production: (
+                production.pinout_device_ids
+                and production.product_id.tracking == "none"
+            )
+        )
 
     def _validate_pinout_registry_device_configuration(self):
         self.ensure_one()
@@ -278,6 +287,180 @@ class MrpProduction(models.Model):
                 )
             )
 
+    def _validate_pinout_untracked_completion(self):
+        for production in self._get_pinout_untracked_productions():
+            devices = production.pinout_device_ids
+            devices_with_lot = devices.filtered("final_lot_id")
+            if devices_with_lot:
+                raise ValidationError(
+                    _(
+                        "Untracked manufacturing cannot synchronize Devices with "
+                        "an active Final Lot / Serial: %(devices)s. Clear the active "
+                        "Final Lot before completing this Manufacturing Order.",
+                        devices=", ".join(devices_with_lot.mapped("device_uid")),
+                    )
+                )
+
+            quantity_to_produce = production.product_uom_id._compute_quantity(
+                production.qty_producing,
+                production.product_id.uom_id,
+            )
+            if (
+                float_compare(
+                    quantity_to_produce,
+                    len(devices),
+                    precision_rounding=production.product_id.uom_id.rounding,
+                )
+                != 0
+            ):
+                raise ValidationError(
+                    _(
+                        "Complete all linked Registry Devices together. Quantity to "
+                        "Produce %(quantity)s must match the number of Registry "
+                        "Devices (%(device_count)s). Partial production and "
+                        "backorders are not supported for a linked batch.",
+                        quantity=quantity_to_produce,
+                        device_count=len(devices),
+                    )
+                )
+
+            source_product = production.pinout_source_product_id
+            source_moves = production._get_pinout_source_moves(
+                devices.device_type_id
+            ).filtered_domain([("product_id", "=", source_product.id)])
+            consumed_quantity = sum(
+                move.product_uom._compute_quantity(
+                    move.quantity,
+                    source_product.uom_id,
+                )
+                for move in source_moves
+            )
+            if (
+                float_compare(
+                    consumed_quantity,
+                    len(devices),
+                    precision_rounding=source_product.uom_id.rounding,
+                )
+                != 0
+            ):
+                raise ValidationError(
+                    _(
+                        "Actual consumed quantity of source Product Form %(product)s "
+                        "must match the number of Registry Devices "
+                        "(%(device_count)s). Consumed quantity: %(quantity)s.",
+                        product=source_product.display_name,
+                        device_count=len(devices),
+                        quantity=consumed_quantity,
+                    )
+                )
+
+    def _validate_pinout_completed_untracked_output(self):
+        self.ensure_one()
+        completed_moves = self.move_finished_ids.filtered(
+            lambda move: move.state == "done" and move.product_id == self.product_id
+        )
+        completed_quantity = sum(
+            move.product_uom._compute_quantity(
+                move.quantity,
+                self.product_id.uom_id,
+            )
+            for move in completed_moves
+        )
+        if (
+            float_compare(
+                completed_quantity,
+                len(self.pinout_device_ids),
+                precision_rounding=self.product_id.uom_id.rounding,
+            )
+            != 0
+        ):
+            raise ValidationError(
+                _(
+                    "Completed quantity of Product Form %(product)s must match the "
+                    "number of Registry Devices (%(device_count)s). Completed "
+                    "quantity: %(quantity)s.",
+                    product=self.product_id.display_name,
+                    device_count=len(self.pinout_device_ids),
+                    quantity=completed_quantity,
+                )
+            )
+
+    def _synchronize_pinout_devices_after_manufacturing(self):
+        state_labels = dict(self.env["pinout.device"]._fields["state"].selection)
+        quality_labels = dict(
+            self.env["pinout.device"]._fields["quality_status"].selection
+        )
+        for production in self._get_pinout_untracked_productions():
+            production._validate_pinout_completed_untracked_output()
+            devices = production.pinout_device_ids
+            snapshots = {
+                device.id: {
+                    "product": device.current_product_id,
+                    "state": device.state,
+                    "quality": device.quality_status,
+                    "location": device.location_id,
+                }
+                for device in devices
+            }
+            values = {
+                "current_product_id": production.product_id.id,
+                "location_id": production.location_dest_id.id,
+            }
+            target_state = production.pinout_target_device_state
+            if target_state != "no_change":
+                values["state"] = target_state
+            devices.with_context(tracking_disable=True).write(values)
+
+            for device in devices:
+                snapshot = snapshots[device.id]
+                device_message = _(
+                    "Device Registry was synchronized after %(production)s.<br>"
+                    "Current Product / Current Form: %(previous_product)s to "
+                    "%(next_product)s.<br>State: %(previous_state)s to "
+                    "%(next_state)s.<br>Quality Status: %(quality)s "
+                    "(unchanged).<br>Odoo Location: %(previous_location)s to "
+                    "%(next_location)s."
+                )
+                device.message_post(
+                    body=Markup(device_message)
+                    % {
+                        "production": production._get_html_link(),
+                        "previous_product": escape(snapshot["product"].display_name),
+                        "next_product": escape(production.product_id.display_name),
+                        "previous_state": escape(
+                            state_labels.get(snapshot["state"], snapshot["state"])
+                        ),
+                        "next_state": escape(
+                            state_labels.get(device.state, device.state)
+                        ),
+                        "quality": escape(
+                            quality_labels.get(snapshot["quality"], snapshot["quality"])
+                        ),
+                        "previous_location": escape(
+                            snapshot["location"].display_name or _("none")
+                        ),
+                        "next_location": escape(
+                            production.location_dest_id.display_name
+                        ),
+                    },
+                    subtype_xmlid="mail.mt_note",
+                )
+
+            production_message = _(
+                "Registry Devices %(devices)s were synchronized to Product Form "
+                "%(product)s after this Manufacturing Order."
+            )
+            production.message_post(
+                body=Markup(production_message)
+                % {
+                    "devices": Markup(", ").join(
+                        device._get_html_link() for device in devices
+                    ),
+                    "product": escape(production.product_id.display_name),
+                },
+                subtype_xmlid="mail.mt_note",
+            )
+
     @api.constrains(
         "pinout_device_ids",
         "product_id",
@@ -295,4 +478,16 @@ class MrpProduction(models.Model):
 
     def pre_button_mark_done(self):
         self._validate_pinout_registry_devices()
-        return super().pre_button_mark_done()
+        result = super().pre_button_mark_done()
+        self._validate_pinout_untracked_completion()
+        return result
+
+    def button_mark_done(self):
+        productions_to_sync = self._get_pinout_untracked_productions().filtered(
+            lambda production: production.state != "done"
+        )
+        result = super().button_mark_done()
+        productions_to_sync.filtered(
+            lambda production: production.state == "done"
+        )._synchronize_pinout_devices_after_manufacturing()
+        return result

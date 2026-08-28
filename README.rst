@@ -32,6 +32,7 @@ Features
   identity before disassembly.
 * Link existing Registry Devices to Manufacturing Orders and validate the
   physical Product Form transition against the BoM.
+* Synchronize untracked manufacturing results back to linked Registry Devices.
 * Update selected Device fields in batches.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
@@ -67,9 +68,9 @@ Create Device Types and select the Product Forms allowed for each type. Add the
 product attributes that should appear in Variant Summary and configure Variant
 Codes when short values such as ``BMGR / SML`` are useful.
 
-On each Product Form, configure Device State after Manufacturing. Use ``Do Not
-Change`` until the form should participate in automatic post-manufacturing
-synchronization.
+On each Product Form, configure Device State after Manufacturing. ``Do Not
+Change`` updates the Product Form and location while preserving the Device's
+existing lifecycle state.
 
 Create Bundle Types and configure their code, allowed Bundle Product Forms, and
 whether they require a Kit BoM. Kit products must have an active phantom BoM
@@ -113,10 +114,21 @@ and not be Reserved, Sold, Scrapped, or linked to another active order.
 Serial-tracked outputs require a separate quantity-one order for each Device;
 untracked intermediate forms may use batch orders.
 
-This foundation records and validates the relationship. Completing a linked
-Manufacturing Order does not yet change Device fields or create a final serial;
-those actions remain explicit until post-manufacturing synchronization is
-enabled in a later version.
+Completing a linked order with an untracked output updates Current Product /
+Current Form and Odoo Location on every Device. It applies the configured
+Device State after Manufacturing, or preserves the current state when ``Do Not
+Change`` is selected. Quality Status is deliberately preserved because a
+completed Manufacturing Order does not prove that a separate quality check has
+passed.
+
+All linked Devices in an untracked batch must be completed together. Partial
+production and backorders are rejected because the order cannot otherwise
+identify which Device UIDs were completed. An active Final Lot must be cleared
+before producing another untracked form. Device and Manufacturing Order chatter
+record the synchronization.
+
+Tracked outputs are validated as quantity-one orders but are not synchronized
+and do not create or reuse a final serial yet.
 
 Unbuild Orders
 ~~~~~~~~~~~~~~

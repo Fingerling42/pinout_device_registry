@@ -9,6 +9,13 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.stock_location = cls.env.ref("stock.stock_location_stock")
+        cls.finished_location = cls.env["stock.location"].create(
+            {
+                "name": "Registry MO Finished Forms",
+                "location_id": cls.stock_location.id,
+                "usage": "internal",
+            }
+        )
         cls.source_product = cls.env["product.product"].create(
             {
                 "name": "Registry MO Source Form",
@@ -121,7 +128,7 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
                 "product_uom_id": product.uom_id.id,
                 "bom_id": bom.id,
                 "location_src_id": self.stock_location.id,
-                "location_dest_id": self.stock_location.id,
+                "location_dest_id": self.finished_location.id,
             }
         )
 
@@ -157,6 +164,92 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
         self.assertEqual(production.state, "confirmed")
         self.assertEqual(devices.current_product_id, self.source_product)
         self.assertEqual(set(devices.mapped("state")), {"wip"})
+
+    def test_untracked_batch_synchronizes_devices_after_completion(self):
+        devices = self._create_device(
+            quality_status="needs_test"
+        ) | self._create_device(quality_status="needs_test")
+        production = self._create_production(quantity=2.0)
+        production.pinout_device_ids = [Command.set(devices.ids)]
+        production.action_confirm()
+
+        production.button_mark_done()
+
+        self.assertEqual(production.state, "done")
+        self.assertEqual(
+            set(devices.mapped("current_product_id")), {self.target_product}
+        )
+        self.assertEqual(set(devices.mapped("state")), {"ready_for_packaging"})
+        self.assertEqual(set(devices.mapped("quality_status")), {"needs_test"})
+        self.assertEqual(set(devices.mapped("location_id")), {self.finished_location})
+        for device in devices:
+            self.assertTrue(
+                device.message_ids.filtered(
+                    lambda message: "was synchronized after" in message.body
+                )
+            )
+        self.assertTrue(
+            production.message_ids.filtered(
+                lambda message: "were synchronized to Product Form" in message.body
+            )
+        )
+
+    def test_do_not_change_preserves_device_state_and_quality(self):
+        self.target_template.pinout_device_state_after_manufacturing = "no_change"
+        device = self._create_device(state="rework", quality_status="ok")
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+        production.action_confirm()
+
+        production.button_mark_done()
+
+        self.assertEqual(device.current_product_id, self.target_product)
+        self.assertEqual(device.state, "rework")
+        self.assertEqual(device.quality_status, "ok")
+        self.assertEqual(device.location_id, self.finished_location)
+
+    def test_partial_untracked_batch_is_rejected_before_backorder(self):
+        devices = self._create_device() | self._create_device()
+        production = self._create_production(quantity=2.0)
+        production.pinout_device_ids = [Command.set(devices.ids)]
+        production.action_confirm()
+        production.qty_producing = 1.0
+        state_before_completion = production.state
+
+        with (
+            self.assertRaisesRegex(ValidationError, "Partial production"),
+            self.cr.savepoint(),
+        ):
+            production.button_mark_done()
+
+        self.assertEqual(production.state, state_before_completion)
+        self.assertEqual(
+            set(devices.mapped("current_product_id")), {self.source_product}
+        )
+
+    def test_active_final_lot_blocks_untracked_synchronization(self):
+        device = self._create_device()
+        lot = self.env["stock.lot"].create(
+            {
+                "name": device.device_uid,
+                "product_id": self.source_product.id,
+                "company_id": self.env.company.id,
+            }
+        )
+        device.final_lot_id = lot
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+        production.action_confirm()
+
+        with (
+            self.assertRaisesRegex(ValidationError, "active Final Lot"),
+            self.cr.savepoint(),
+        ):
+            production.button_mark_done()
+
+        self.assertEqual(production.state, "confirmed")
+        self.assertEqual(device.current_product_id, self.source_product)
+        self.assertEqual(device.final_lot_id, lot)
 
     def test_unlinked_standard_manufacturing_order_is_unchanged(self):
         production = self._create_production(
