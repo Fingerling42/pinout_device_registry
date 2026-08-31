@@ -123,6 +123,15 @@ class MrpProduction(models.Model):
             )
         )
 
+    def _get_pinout_completed_serial_tracked_productions(self):
+        return self.filtered(
+            lambda production: (
+                production.pinout_device_ids
+                and production.product_id.tracking == "serial"
+                and production.state == "done"
+            )
+        )
+
     def _validate_pinout_registry_device_configuration(self):
         self.ensure_one()
         devices = self.pinout_device_ids
@@ -498,6 +507,88 @@ class MrpProduction(models.Model):
                 )
             )
 
+    def _get_pinout_completed_tracked_output_line(self):
+        self.ensure_one()
+        completed_moves = self.move_finished_ids.filtered(
+            lambda move: move.state == "done" and move.product_id == self.product_id
+        )
+        completed_lines = completed_moves.move_line_ids.filtered(
+            lambda line: (
+                float_compare(
+                    line.quantity,
+                    0.0,
+                    precision_rounding=line.product_uom_id.rounding,
+                )
+                > 0
+            )
+        )
+        if len(completed_lines) != 1:
+            raise ValidationError(
+                _(
+                    "Registry-linked serial manufacturing must complete exactly one "
+                    "positive output move line. Found: %(line_count)s.",
+                    line_count=len(completed_lines),
+                )
+            )
+
+        completed_line = completed_lines
+        completed_quantity = completed_line.product_uom_id._compute_quantity(
+            completed_line.quantity,
+            self.product_id.uom_id,
+        )
+        if (
+            float_compare(
+                completed_quantity,
+                1.0,
+                precision_rounding=self.product_id.uom_id.rounding,
+            )
+            != 0
+        ):
+            raise ValidationError(
+                _(
+                    "Registry-linked serial manufacturing must complete exactly one "
+                    "unit of Product %(product)s. Completed quantity: %(quantity)s.",
+                    product=self.product_id.display_name,
+                    quantity=completed_quantity,
+                )
+            )
+
+        device = self.pinout_device_ids
+        final_lot = self.lot_producing_id
+        if not final_lot or completed_line.lot_id != final_lot:
+            raise ValidationError(
+                _(
+                    "Completed output serial for Registry Device %(device)s must "
+                    "match the serial prepared on the Manufacturing Order.",
+                    device=device.display_name,
+                )
+            )
+        if (
+            final_lot.name != device.device_uid
+            or final_lot.product_id != self.product_id
+            or final_lot.company_id != self.company_id
+        ):
+            raise ValidationError(
+                _(
+                    "Completed output serial %(serial)s does not match Registry "
+                    "Device %(device)s, Product %(product)s, and Company %(company)s.",
+                    serial=final_lot.display_name,
+                    device=device.display_name,
+                    product=self.product_id.display_name,
+                    company=self.company_id.display_name,
+                )
+            )
+        if final_lot.pinout_device_id and final_lot.pinout_device_id != device:
+            raise ValidationError(
+                _(
+                    "Completed output serial %(serial)s is already linked to another "
+                    "Registry Device %(device)s.",
+                    serial=final_lot.display_name,
+                    device=final_lot.pinout_device_id.display_name,
+                )
+            )
+        return completed_line
+
     def _synchronize_pinout_devices_after_manufacturing(self):
         state_labels = dict(self.env["pinout.device"]._fields["state"].selection)
         quality_labels = dict(
@@ -574,6 +665,86 @@ class MrpProduction(models.Model):
                 subtype_xmlid="mail.mt_note",
             )
 
+    def _synchronize_pinout_tracked_devices_after_manufacturing(self):
+        state_labels = dict(self.env["pinout.device"]._fields["state"].selection)
+        quality_labels = dict(
+            self.env["pinout.device"]._fields["quality_status"].selection
+        )
+        for production in self._get_pinout_completed_serial_tracked_productions():
+            completed_line = production._get_pinout_completed_tracked_output_line()
+            device = production.pinout_device_ids
+            final_lot = completed_line.lot_id
+            snapshot = {
+                "product": device.current_product_id,
+                "state": device.state,
+                "quality": device.quality_status,
+                "location": device.location_id,
+                "final_lot": device.final_lot_id,
+            }
+            values = {
+                "current_product_id": production.product_id.id,
+                "location_id": completed_line.location_dest_id.id,
+                "final_lot_id": final_lot.id,
+            }
+            target_state = production.pinout_target_device_state
+            if target_state != "no_change":
+                values["state"] = target_state
+            device.with_context(tracking_disable=True).write(values)
+
+            previous_lot = snapshot["final_lot"]
+            device_message = _(
+                "Device Registry was synchronized after %(production)s.<br>"
+                "Current Product / Current Form: %(previous_product)s to "
+                "%(next_product)s.<br>State: %(previous_state)s to "
+                "%(next_state)s.<br>Quality Status: %(quality)s "
+                "(unchanged).<br>Odoo Location: %(previous_location)s to "
+                "%(next_location)s.<br>Current Final Lot / Serial: "
+                "%(previous_lot)s to %(next_lot)s."
+            )
+            device.message_post(
+                body=Markup(device_message)
+                % {
+                    "production": production._get_html_link(),
+                    "previous_product": escape(snapshot["product"].display_name),
+                    "next_product": escape(production.product_id.display_name),
+                    "previous_state": escape(
+                        state_labels.get(snapshot["state"], snapshot["state"])
+                    ),
+                    "next_state": escape(state_labels.get(device.state, device.state)),
+                    "quality": escape(
+                        quality_labels.get(snapshot["quality"], snapshot["quality"])
+                    ),
+                    "previous_location": escape(
+                        snapshot["location"].display_name or _("none")
+                    ),
+                    "next_location": escape(
+                        completed_line.location_dest_id.display_name
+                    ),
+                    "previous_lot": (
+                        previous_lot._get_html_link()
+                        if previous_lot
+                        else escape(_("none"))
+                    ),
+                    "next_lot": final_lot._get_html_link(),
+                },
+                subtype_xmlid="mail.mt_note",
+            )
+
+            production_message = _(
+                "Registry Device %(device)s was synchronized to Product Form "
+                "%(product)s with Final Serial %(serial)s after this Manufacturing "
+                "Order."
+            )
+            production.message_post(
+                body=Markup(production_message)
+                % {
+                    "device": device._get_html_link(),
+                    "product": escape(production.product_id.display_name),
+                    "serial": final_lot._get_html_link(),
+                },
+                subtype_xmlid="mail.mt_note",
+            )
+
     @api.constrains(
         "pinout_device_ids",
         "product_id",
@@ -599,11 +770,17 @@ class MrpProduction(models.Model):
         return result
 
     def button_mark_done(self):
-        productions_to_sync = self._get_pinout_untracked_productions().filtered(
-            lambda production: production.state != "done"
+        untracked_productions_to_sync = (
+            self._get_pinout_untracked_productions().filtered(
+                lambda production: production.state != "done"
+            )
         )
+        tracked_productions_to_sync = self._get_pinout_serial_tracked_productions()
         result = super().button_mark_done()
-        productions_to_sync.filtered(
+        untracked_productions_to_sync.filtered(
             lambda production: production.state == "done"
         )._synchronize_pinout_devices_after_manufacturing()
+        tracked_productions_to_sync.filtered(
+            lambda production: production.state == "done"
+        )._synchronize_pinout_tracked_devices_after_manufacturing()
         return result

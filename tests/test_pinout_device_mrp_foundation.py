@@ -318,6 +318,61 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
         self.assertEqual(production.lot_producing_id.product_id, self.target_product)
         self.assertFalse(device.final_lot_id)
 
+    def test_tracked_completion_synchronizes_device_and_final_serial(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device(state="rework", quality_status="needs_test")
+        production = self._create_production()
+        production.pinout_device_ids = [Command.set(device.ids)]
+        production.action_confirm()
+        prepared_lot = production.lot_producing_id
+
+        production.button_mark_done()
+
+        self.assertEqual(production.state, "done")
+        self.assertEqual(device.current_product_id, self.target_product)
+        self.assertEqual(device.state, "ready_for_packaging")
+        self.assertEqual(device.quality_status, "needs_test")
+        self.assertEqual(device.location_id, self.finished_location)
+        self.assertEqual(device.final_lot_id, prepared_lot)
+        self.assertIn(prepared_lot, device.final_lot_history_ids)
+        self.assertEqual(prepared_lot.pinout_device_id, device)
+        self.assertTrue(
+            device.message_ids.filtered(
+                lambda message: "Current Final Lot / Serial" in message.body
+            )
+        )
+        self.assertTrue(
+            production.message_ids.filtered(
+                lambda message: "with Final Serial" in message.body
+            )
+        )
+
+    def test_completed_mismatched_serial_is_not_synchronized(self):
+        self.target_template.tracking = "serial"
+        device = self._create_device()
+        wrong_lot = self.env["stock.lot"].create(
+            {
+                "name": "WRONG-COMPLETED-SERIAL",
+                "product_id": self.target_product.id,
+                "company_id": self.env.company.id,
+            }
+        )
+        production = self._create_production()
+        production.action_confirm()
+        production.lot_producing_id = wrong_lot
+        production.button_mark_done()
+        production.pinout_device_ids = [Command.set(device.ids)]
+
+        with (
+            self.assertRaisesRegex(ValidationError, "does not match Registry"),
+            self.cr.savepoint(),
+        ):
+            production._synchronize_pinout_tracked_devices_after_manufacturing()
+
+        self.assertEqual(device.current_product_id, self.source_product)
+        self.assertFalse(device.final_lot_id)
+        self.assertFalse(wrong_lot.pinout_device_id)
+
     def test_tracked_confirm_reuses_matching_registry_serial(self):
         self.target_template.tracking = "serial"
         device = self._create_device()
