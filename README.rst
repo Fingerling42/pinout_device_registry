@@ -30,6 +30,11 @@ Features
   operations.
 * Link standard Unbuild Orders to Registry Devices and validate physical
   identity before disassembly.
+* Link existing Registry Devices to Manufacturing Orders and validate the
+  physical Product Form transition against the BoM.
+* Synchronize untracked manufacturing results back to linked Registry Devices.
+* Prepare tracked output serials from Device UID and synchronize the completed
+  result back to its Registry Device.
 * Update selected Device fields in batches.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
@@ -65,6 +70,10 @@ Create Device Types and select the Product Forms allowed for each type. Add the
 product attributes that should appear in Variant Summary and configure Variant
 Codes when short values such as ``BMGR / SML`` are useful.
 
+On each Product Form, configure Device State after Manufacturing. ``Do Not
+Change`` updates the Product Form and location while preserving the Device's
+existing lifecycle state.
+
 Create Bundle Types and configure their code, allowed Bundle Product Forms, and
 whether they require a Kit BoM. Kit products must have an active phantom BoM
 with the correct Apply on Variants values on component lines.
@@ -90,6 +99,48 @@ and sales metadata in the Device's Final Lot History.
 
 Select multiple records in the Device list and use Batch Update to change only
 the selected fields together.
+
+Manufacturing Orders
+~~~~~~~~~~~~~~~~~~~~
+
+Open ``Manufacturing -> Operations -> Manufacturing Orders`` and create the
+normal Odoo order with its Product, BoM, and quantity. Use the Device Registry
+tab to link the existing physical Devices represented by this order. Leaving
+the field empty preserves the standard Odoo manufacturing workflow.
+
+A linked order must use one Device Type, produce one of its allowed Product
+Forms, and consume exactly one common source Product Form per Device. The order
+quantity, source component quantity, and number of linked Devices must match.
+Each Device must currently have that source Product Form, be outside a Bundle,
+and not be Reserved, Sold, Scrapped, or linked to another active order.
+Serial-tracked outputs require a separate quantity-one order for each Device;
+untracked intermediate forms may use batch orders.
+
+Completing a linked order with an untracked output updates Current Product /
+Current Form and Odoo Location on every Device. It applies the configured
+Device State after Manufacturing, or preserves the current state when ``Do Not
+Change`` is selected. Quality Status is deliberately preserved because a
+completed Manufacturing Order does not prove that a separate quality check has
+passed.
+
+All linked Devices in an untracked batch must be completed together. Partial
+production and backorders are rejected because the order cannot otherwise
+identify which Device UIDs were completed. An active Final Lot must be cleared
+before producing another untracked form. Device and Manufacturing Order chatter
+record the synchronization.
+
+Tracked outputs are validated as quantity-one orders. On confirmation, the
+addon creates a Product serial named exactly like Device UID or safely reuses a
+matching existing serial. A manually selected conflicting serial, Tracking by
+Lots, an on-hand serial, or an uncompensated previously produced serial is
+rejected. The prepared serial is recorded in Manufacturing Order chatter.
+
+After successful completion, the addon verifies that exactly one positive
+output move line used the prepared serial. It then updates Current Product /
+Current Form, the configured Device State, the actual output destination
+location, and Current Final Lot / Serial. Quality Status remains unchanged.
+The serial is permanently linked to the Device through Final Lot History, and
+both records receive audit messages.
 
 Unbuild Orders
 ~~~~~~~~~~~~~~

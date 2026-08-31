@@ -145,6 +145,19 @@ class PinoutDevice(models.Model):
         "pinout.device.bundle",
         tracking=True,
     )
+    manufacturing_order_ids = fields.Many2many(
+        "mrp.production",
+        "mrp_production_pinout_device_rel",
+        "device_id",
+        "production_id",
+        string="Manufacturing Orders",
+        readonly=True,
+        copy=False,
+    )
+    manufacturing_order_count = fields.Integer(
+        compute="_compute_manufacturing_order_count",
+        string="Manufacturing Order Count",
+    )
 
     robonomics_device_address = fields.Char(tracking=True)
     subscription_owner_address = fields.Char(tracking=True)
@@ -152,6 +165,11 @@ class PinoutDevice(models.Model):
 
     notes = fields.Text()
     active = fields.Boolean(default=True)
+
+    @api.depends("manufacturing_order_ids")
+    def _compute_manufacturing_order_count(self):
+        for device in self:
+            device.manufacturing_order_count = len(device.manufacturing_order_ids)
 
     _sql_constraints: ClassVar[list[tuple[str, str, str]]] = [
         (
@@ -472,6 +490,13 @@ class PinoutDevice(models.Model):
             ),
             subtype_xmlid="mail.mt_note",
         )
+
+    def action_open_manufacturing_orders(self):
+        self.ensure_one()
+        action = self.env["ir.actions.actions"]._for_xml_id("mrp.mrp_production_action")
+        action["domain"] = [("id", "in", self.manufacturing_order_ids.ids)]
+        action["context"] = {"create": False}
+        return action
 
     @api.depends(
         "device_uid",

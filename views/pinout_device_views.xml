@@ -67,6 +67,21 @@
                     />
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button
+                            name="action_open_manufacturing_orders"
+                            type="object"
+                            class="oe_stat_button"
+                            icon="fa-wrench"
+                            invisible="manufacturing_order_count == 0"
+                        >
+                            <field
+                                name="manufacturing_order_count"
+                                widget="statinfo"
+                                string="Manufacturing Orders"
+                            />
+                        </button>
+                    </div>
                     <div class="oe_title">
                         <label for="device_uid"/>
                         <h1>

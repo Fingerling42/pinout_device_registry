@@ -9,6 +9,11 @@ DEVICE_STATE_SELECTION = [
     ("scrapped", "Scrapped"),
 ]
 
+DEVICE_STATE_AFTER_MANUFACTURING_SELECTION = [
+    ("no_change", "Do Not Change"),
+    *DEVICE_STATE_SELECTION,
+]
+
 QUALITY_STATUS_SELECTION = [
     ("unknown", "Unknown"),
     ("ok", "OK"),

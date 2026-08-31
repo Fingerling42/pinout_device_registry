@@ -38,6 +38,10 @@
                                     <field name="name"/>
                                     <field name="detailed_type"/>
                                     <field name="tracking"/>
+                                    <field
+                                        name="pinout_device_state_after_manufacturing"
+                                        optional="show"
+                                    />
                                     <field name="product_variant_count"/>
                                 </tree>
                             </field>
