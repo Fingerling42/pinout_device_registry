@@ -4,6 +4,7 @@ from typing import ClassVar
 from markupsafe import Markup
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools import SQL
 
 from .pinout_device_selection import DEVICE_STATE_SELECTION, QUALITY_STATUS_SELECTION
 
@@ -120,6 +121,7 @@ class PinoutDevice(models.Model):
     last_customer_id = fields.Many2one(
         "res.partner",
         compute="_compute_last_sales_data",
+        search="_search_last_customer_id",
         readonly=True,
         store=False,
     )
@@ -363,6 +365,107 @@ class PinoutDevice(models.Model):
                 else:
                     summary_parts.append(product_attribute_value.name)
             device.variant_summary = " / ".join(summary_parts)
+
+    def _field_to_sql(self, alias, fname, query=None):
+        if fname != "last_customer_id":
+            return super()._field_to_sql(alias, fname, query)
+
+        # Keep grouping live and subject to the same stock record rules as the
+        # non-stored sales metadata. A stored customer would depend on the user
+        # who last recomputed it and could expose another company's delivery.
+        self.flush_model(["final_lot_id"])
+        lots = self.env["stock.lot"]
+        lots._flush_search([], ["pinout_device_id"])
+        lot_query = lots._search([])
+        lot_query.add_where(
+            SQL(
+                "(%s = %s OR %s = %s)",
+                SQL.identifier(lots._table, "id"),
+                SQL.identifier(alias, "final_lot_id"),
+                SQL.identifier(lots._table, "pinout_device_id"),
+                SQL.identifier(alias, "id"),
+            )
+        )
+        lines = self.env["stock.move.line"]
+        domain = [
+            ("state", "=", "done"),
+            ("location_dest_id.usage", "=", "customer"),
+            ("picking_id", "!=", False),
+        ]
+        lines._flush_search(domain, ["lot_id", "picking_id", "date"])
+        pickings = self.env["stock.picking"]
+        pickings._flush_search([], ["partner_id", "date_done", "date"])
+        picking_query = pickings._search([])
+        line_query = lines._search(domain)
+        line_query.add_where(
+            SQL(
+                "%s IN %s",
+                SQL.identifier(lines._table, "lot_id"),
+                lot_query.subselect(),
+            )
+        )
+        picking_alias = line_query.left_join(
+            lines._table, "picking_id", "stock_picking", "id", "last_customer_picking"
+        )
+        line_query.add_where(
+            SQL(
+                "%s IN %s",
+                SQL.identifier(picking_alias, "id"),
+                picking_query.subselect(),
+            )
+        )
+        line_query.order = SQL(
+            "COALESCE(%s, %s, %s) DESC, %s DESC",
+            SQL.identifier(picking_alias, "date_done"),
+            SQL.identifier(picking_alias, "date"),
+            SQL.identifier(lines._table, "date"),
+            SQL.identifier(lines._table, "id"),
+        )
+        line_query.limit = 1
+        return SQL(
+            "(%s)", line_query.select(SQL.identifier(picking_alias, "partner_id"))
+        )
+
+    @api.model
+    def _search_last_customer_id(self, operator, value):
+        if operator not in ("=", "!=", "in", "not in"):
+            raise NotImplementedError(f"Unsupported Last Customer operator: {operator}")
+        values = value if operator in ("in", "not in") else [value]
+        customer_ids = tuple(customer_id for customer_id in values if customer_id)
+        query = self._search([])
+        customer_sql = self._field_to_sql(self._table, "last_customer_id", query)
+        # False represents SQL NULL, including devices without any delivery.
+        condition = (
+            SQL("%s IN %s", customer_sql, customer_ids)
+            if customer_ids
+            else SQL("FALSE")
+        )
+        if any(not customer_id for customer_id in values):
+            condition = SQL("(%s OR %s IS NULL)", condition, customer_sql)
+        if operator in ("!=", "not in"):
+            condition = SQL("NOT COALESCE(%s, FALSE)", condition)
+        query.add_where(condition)
+        return [("id", "in", query)]
+
+    def _order_field_to_sql(self, alias, field_name, direction, nulls, query):
+        if field_name != "last_customer_id":
+            return super()._order_field_to_sql(
+                alias, field_name, direction, nulls, query
+            )
+        partner_alias = query.make_alias(alias, field_name)
+        query.add_join(
+            "LEFT JOIN",
+            partner_alias,
+            "res_partner",
+            SQL(
+                "%s = %s",
+                self._field_to_sql(alias, field_name, query),
+                SQL.identifier(partner_alias, "id"),
+            ),
+        )
+        return self.env["res.partner"]._order_field_to_sql(
+            partner_alias, "name", direction, nulls, query
+        )
 
     @api.depends("final_lot_id", "final_lot_history_ids")
     def _compute_last_sales_data(self):

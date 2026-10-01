@@ -1,4 +1,4 @@
-from odoo import Command
+from odoo import Command, fields
 from odoo.tests import TransactionCase, tagged
 
 
@@ -187,6 +187,267 @@ class TestPinoutDeviceSalesData(TransactionCase):
         self.assertEqual(device.last_delivery_id, delivery)
         self.assertEqual(device.last_order_reference, "CUSTOMER-NORMAL-REFERENCE")
 
+    def test_last_customer_grouping_and_expansion(self):
+        sale_order = self._create_sale_order(self.normal_product)
+        self._complete_sale_delivery(sale_order, self.normal_device)
+        devices = self.normal_device | self.kit_devices
+        result = devices.web_read_group(
+            [("id", "in", devices.ids)],
+            ["last_customer_id"],
+            ["last_customer_id"],
+        )
+        self.assertEqual(result["length"], 2)
+        groups = {
+            group["last_customer_id"][0] if group["last_customer_id"] else False: group
+            for group in result["groups"]
+        }
+        self.assertEqual(groups[self.partner.id]["last_customer_id_count"], 1)
+        self.assertEqual(groups[False]["last_customer_id_count"], 2)
+        self.assertEqual(
+            devices.search(groups[self.partner.id]["__domain"]), self.normal_device
+        )
+        self.assertEqual(devices.search(groups[False]["__domain"]), self.kit_devices)
+
+        second_partner = self.env["res.partner"].create({"name": "Another Customer"})
+        kit_order = self._create_sale_order(self.kit_product)
+        kit_order.partner_id = second_partner
+        self._complete_sale_delivery(kit_order, self.kit_devices)
+        groups = devices.read_group(
+            [("id", "in", devices.ids), ("state", "=", "sold")],
+            ["last_customer_id"],
+            ["last_customer_id", "device_type_id"],
+            lazy=False,
+        )
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(
+            {group["last_customer_id"][0]: group["__count"] for group in groups},
+            {self.partner.id: 1, second_partner.id: 2},
+        )
+        page = devices.web_read_group(
+            [("id", "in", devices.ids)],
+            ["last_customer_id"],
+            ["last_customer_id"],
+            limit=1,
+            orderby="last_customer_id asc",
+        )
+        self.assertEqual(page["length"], 2)
+        self.assertEqual(page["groups"][0]["last_customer_id"][0], second_partner.id)
+        self.assertEqual(
+            devices.search(page["groups"][0]["__domain"]), self.kit_devices
+        )
+        for operator, value, expected in (
+            ("=", False, devices.browse()),
+            ("!=", False, devices),
+            ("!=", self.partner.id, self.kit_devices),
+            ("in", [False, self.partner.id], self.normal_device),
+            ("not in", [False, self.partner.id], self.kit_devices),
+            ("in", [], devices.browse()),
+            ("not in", [], devices),
+        ):
+            with self.subTest(operator=operator, value=value):
+                self.assertEqual(
+                    devices.search(
+                        [
+                            ("id", "in", devices.ids),
+                            ("last_customer_id", operator, value),
+                        ]
+                    ),
+                    expected,
+                )
+
+    def test_customer_grouping_reads_delivery_changes_without_cached_metadata(self):
+        order = self._create_sale_order(self.normal_product)
+        delivery = self._complete_sale_delivery(order, self.normal_device)
+        self.normal_device.final_lot_id = False
+        another_partner = self.env["res.partner"].create({"name": "Corrected Customer"})
+        delivery.partner_id = another_partner
+        # Observe writes in this transaction without relying on the computed cache.
+        domain = [("id", "=", self.normal_device.id)]
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(groups[0]["last_customer_id"][0], another_partner.id)
+        self.assertEqual(
+            self.normal_device.search(groups[0]["__domain"]), self.normal_device
+        )
+        delivery.move_line_ids.location_dest_id = self.stock_location
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertFalse(groups[0]["last_customer_id"])
+        delivery.move_line_ids.location_dest_id = self.env.ref(
+            "stock.stock_location_customers"
+        )
+        delivery.move_ids.write({"state": "cancel"})
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertFalse(groups[0]["last_customer_id"])
+
+    def test_customer_grouping_respects_device_and_stock_record_rules(self):
+        order = self._create_sale_order(self.normal_product)
+        self._complete_sale_delivery(order, self.normal_device)
+        user = (
+            self.env["res.users"]
+            .with_context(no_reset_password=True)
+            .create(
+                {
+                    "name": "Customer Grouping User",
+                    "login": "customer-grouping-test",
+                    "company_id": self.env.company.id,
+                    "company_ids": [Command.set(self.env.company.ids)],
+                    "groups_id": [
+                        Command.set(
+                            [
+                                self.env.ref("stock.group_stock_manager").id,
+                                self.env.ref("sales_team.group_sale_manager").id,
+                            ]
+                        )
+                    ],
+                }
+            )
+        )
+        devices = (self.normal_device | self.kit_devices).with_user(user)
+        domain = [("id", "in", devices.ids)]
+        groups = devices.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(len(groups), 2)
+        for model, rule_domain in (
+            ("stock.move.line", [("lot_id", "!=", self.normal_lot.id)]),
+            ("stock.lot", [("id", "!=", self.normal_lot.id)]),
+            ("stock.picking", [("id", "not in", order.picking_ids.ids)]),
+        ):
+            with self.subTest(model=model):
+                stock_rule = self.env["ir.rule"].create(
+                    {
+                        "name": "Customer grouping hidden stock data",
+                        "model_id": self.env["ir.model"]._get_id(model),
+                        "domain_force": repr(rule_domain),
+                    }
+                )
+                groups = devices.read_group(domain, [], ["last_customer_id"])
+                self.assertEqual(len(groups), 1)
+                self.assertFalse(groups[0]["last_customer_id"])
+                self.assertEqual(devices.search(groups[0]["__domain"]), devices)
+                stock_rule.unlink()
+
+        other_company = self.env["res.company"].create(
+            {"name": "Grouping Other Company"}
+        )
+        foreign_partner = self.env["res.partner"].create({"name": "Foreign Customer"})
+        foreign_lot = self.env["stock.lot"].create(
+            {
+                "name": self.normal_device.device_uid,
+                "product_id": self.normal_product.id,
+                "company_id": other_company.id,
+                "pinout_device_id": self.normal_device.id,
+            }
+        )
+        source = self.env["stock.location"].create(
+            {
+                "name": "Foreign Historical Source",
+                "usage": "inventory",
+                "company_id": other_company.id,
+            }
+        )
+        destination = self.env.ref("stock.stock_location_customers")
+        operation = self.env["stock.picking.type"].create(
+            {
+                "name": "Foreign Historical Delivery",
+                "sequence_code": "FOREIGN-GROUP",
+                "code": "outgoing",
+                "company_id": other_company.id,
+            }
+        )
+        foreign_delivery = self.env["stock.picking"].create(
+            {
+                "picking_type_id": operation.id,
+                "location_id": source.id,
+                "location_dest_id": destination.id,
+                "partner_id": foreign_partner.id,
+                "company_id": other_company.id,
+                "date_done": "2099-01-01 00:00:00",
+            }
+        )
+        # A later historical delivery in an inaccessible company must not win.
+        self.env["stock.move"].create(
+            {
+                "name": "Foreign Historical Move",
+                "product_id": self.normal_product.id,
+                "product_uom": self.normal_product.uom_id.id,
+                "state": "done",
+                "company_id": other_company.id,
+                "picking_id": foreign_delivery.id,
+                "location_id": source.id,
+                "location_dest_id": destination.id,
+                "move_line_ids": [
+                    Command.create(
+                        {
+                            "product_id": self.normal_product.id,
+                            "product_uom_id": self.normal_product.uom_id.id,
+                            "lot_id": foreign_lot.id,
+                            "quantity": 1,
+                            "company_id": other_company.id,
+                            "picking_id": foreign_delivery.id,
+                            "location_id": source.id,
+                            "location_dest_id": destination.id,
+                        }
+                    )
+                ],
+            }
+        )
+        admin_groups = self.normal_device.read_group(
+            [("id", "=", self.normal_device.id)], [], ["last_customer_id"]
+        )
+        self.assertEqual(admin_groups[0]["last_customer_id"][0], foreign_partner.id)
+        groups = devices.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(
+            {
+                group["last_customer_id"][0] if group["last_customer_id"] else False
+                for group in groups
+            },
+            {self.partner.id, False},
+        )
+        self.assertFalse(
+            devices.search([*domain, ("last_customer_id", "=", foreign_partner.id)])
+        )
+        self.env["ir.rule"].create(
+            {
+                "name": "Customer grouping hidden device",
+                "model_id": self.env["ir.model"]._get_id("pinout.device"),
+                "domain_force": repr([("id", "!=", self.normal_device.id)]),
+            }
+        )
+        groups = devices.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(len(groups), 1)
+        self.assertFalse(groups[0]["last_customer_id"])
+        self.assertEqual(
+            devices.search(groups[0]["__domain"]).ids, self.kit_devices.ids
+        )
+
+    def test_customer_grouping_return_and_resale(self):
+        order = self._create_sale_order(self.normal_product)
+        delivery = self._complete_sale_delivery(order, self.normal_device)
+        wizard = (
+            self.env["stock.return.picking"]
+            .with_context(
+                active_model="stock.picking",
+                active_id=delivery.id,
+                active_ids=delivery.ids,
+            )
+            .create({})
+        )
+        return_id, _ = wizard._create_returns()
+        returned = self.env["stock.picking"].browse(return_id)
+        returned.move_ids.write({"picked": True})
+        returned.move_line_ids.write(
+            {"lot_id": self.normal_lot.id, "quantity": 1, "picked": True}
+        )
+        returned._action_done()
+        domain = [("id", "=", self.normal_device.id)]
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(groups[0]["last_customer_id"][0], self.partner.id)
+        second_partner = self.env["res.partner"].create({"name": "Resale Customer"})
+        resale = self._create_sale_order(self.normal_product)
+        resale.partner_id = second_partner
+        self._complete_sale_delivery(resale, self.normal_device)
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(groups[0]["last_customer_id"][0], second_partner.id)
+        self.assertEqual(self.normal_device.last_customer_id, second_partner)
+
     def test_latest_sales_metadata_uses_all_historical_lots(self):
         first_sale_order = self._create_sale_order(self.normal_product)
         self._complete_sale_delivery(first_sale_order, self.normal_device)
@@ -241,6 +502,15 @@ class TestPinoutDeviceSalesData(TransactionCase):
             self.normal_device.last_order_reference,
             "LATEST-HISTORICAL-REFERENCE",
         )
+
+        another_partner = self.env["res.partner"].create({"name": "Latest Customer"})
+        latest_delivery.partner_id = another_partner
+        domain = [("id", "=", self.normal_device.id)]
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(groups[0]["last_customer_id"][0], another_partner.id)
+        latest_delivery.date_done = fields.Datetime.to_datetime("2000-01-01 00:00:00")
+        groups = self.normal_device.read_group(domain, [], ["last_customer_id"])
+        self.assertEqual(groups[0]["last_customer_id"][0], self.partner.id)
 
     def test_kit_sale_populates_component_devices_and_bundle_metadata(self):
         sale_order = self._create_sale_order(self.kit_product)
