@@ -200,6 +200,7 @@
                 <filter string="Quality: Unknown" name="quality_unknown" domain="[('quality_status', '=', 'unknown')]"/>
                 <filter string="Quality: OK" name="quality_ok" domain="[('quality_status', '=', 'ok')]"/>
                 <filter string="Quality: Needs Test" name="quality_needs_test" domain="[('quality_status', '=', 'needs_test')]"/>
+                <filter string="Quality: Testing" name="quality_testing" domain="[('quality_status', '=', 'testing')]"/>
                 <filter string="Quality: Failed" name="quality_failed" domain="[('quality_status', '=', 'failed')]"/>
                 <separator/>
                 <filter string="Has Current Final Lot" name="has_final_lot" domain="[('final_lot_id', '!=', False)]"/>

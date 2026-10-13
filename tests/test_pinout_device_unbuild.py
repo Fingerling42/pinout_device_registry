@@ -143,6 +143,7 @@ class TestPinoutDeviceUnbuild(TransactionCase):
         self.assertEqual(unbuild.pinout_device_id, self.device)
 
     def test_tracked_unbuild_synchronizes_device_and_preserves_lot_history(self):
+        self.device.quality_status = "testing"
         self.env["stock.quant"]._update_available_quantity(
             self.tracked_product,
             self.stock_location,
@@ -177,6 +178,7 @@ class TestPinoutDeviceUnbuild(TransactionCase):
         )
 
     def test_untracked_unbuild_synchronizes_device_to_next_form(self):
+        self.intermediate_device.quality_status = "testing"
         self.env["stock.quant"]._update_available_quantity(
             self.intermediate_product,
             self.stock_location,

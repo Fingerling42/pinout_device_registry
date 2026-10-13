@@ -1,6 +1,8 @@
+from lxml import etree
 from odoo import Command
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
+from odoo.tools.safe_eval import safe_eval
 
 
 @tagged("post_install", "-at_install")
@@ -84,6 +86,50 @@ class TestPinoutDeviceBatchUpdate(TransactionCase):
             self.assertIn("Ready for Packaging", message_body)
             self.assertIn("Physical Location Note", message_body)
             self.assertNotIn("Quality Status", message_body)
+
+    def test_batch_update_can_start_testing(self):
+        devices = self.devices[:2]
+        wizard = self.env["pinout.device.batch.update.wizard"].create(
+            {
+                "device_ids": [Command.set(devices.ids)],
+                "update_quality_status": True,
+                "quality_status": "testing",
+            }
+        )
+
+        wizard.action_apply()
+
+        self.assertEqual(devices.mapped("quality_status"), ["testing", "testing"])
+        self.assertEqual(devices.mapped("state"), ["wip", "wip"])
+        self.assertEqual(self.devices[2].quality_status, "unknown")
+        for device in devices:
+            batch_messages = device.message_ids.filtered(
+                lambda message: "Batch update applied" in (message.body or "")
+            )
+            self.assertIn("Quality Status", batch_messages.body)
+            self.assertIn("Testing", batch_messages.body)
+
+    def test_testing_filter_and_quality_grouping(self):
+        self.devices[:2].write({"quality_status": "testing"})
+        search_view = self.env.ref("pinout_device_registry.pinout_device_view_search")
+        arch = etree.fromstring(search_view.arch_db)
+        testing_filter = arch.xpath("//filter[@name='quality_testing']")[0]
+        domain = [
+            *safe_eval(testing_filter.get("domain")),
+            ("id", "in", self.devices.ids),
+        ]
+
+        self.assertEqual(self.env["pinout.device"].search(domain), self.devices[:2])
+        groups = self.env["pinout.device"].read_group(
+            [("id", "in", self.devices.ids)], ["quality_status"], ["quality_status"]
+        )
+        self.assertEqual(
+            {
+                group["quality_status"]: group["quality_status_count"]
+                for group in groups
+            },
+            {"testing": 2, "unknown": 1},
+        )
 
     def test_apply_requires_checked_field_and_selected_device(self):
         no_field_wizard = self.env["pinout.device.batch.update.wizard"].create(

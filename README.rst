@@ -88,6 +88,15 @@ Open ``Pinout -> Device Registry -> Devices`` and create a record for each
 physical device. Enter its Device UID and Device Type, then maintain Current
 Product / Current Form, state, quality, and location as production progresses.
 
+Quality Status is managed manually: Unknown is the default, Needs Test means a
+check is required, Testing means a check is in progress, and OK / Failed record
+its result. An interrupted check can return to Needs Test; a repeat check can
+start from OK or Failed. Changes are tracked in chatter. Keep test notes and
+report attachments in Log note, and use Physical Location Note for the device's
+physical place. Changing quality does not change the lifecycle state, Product
+Form, Final Lot, or inventory. Testing is available in Batch Update and as a
+Device list filter; Bundle readiness still requires OK.
+
 When the device becomes a finished retail unit, assign its Final Lot / Serial.
 The serial number must exactly match Device UID and belong to the selected
 Current Product. Completed deliveries, returns, and scrap operations update

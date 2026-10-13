@@ -51,6 +51,34 @@ class TestPinoutDeviceFinalLot(TransactionCase):
             }
         )
 
+    def test_quality_transitions_preserve_identity_and_are_tracked(self):
+        self.assertEqual(self.device.quality_status, "unknown")
+        self.env.cr.precommit.run()
+        for quality in (
+            "needs_test",
+            "testing",
+            "needs_test",
+            "testing",
+            "ok",
+            "testing",
+            "failed",
+            "testing",
+        ):
+            with self.subTest(quality=quality):
+                previous = self.device.quality_status
+                self.device.quality_status = quality
+                self.env.cr.precommit.run()
+                selection = dict(self.device._fields["quality_status"].selection)
+                tracking = self.device.message_ids[0].tracking_value_ids.filtered(
+                    lambda value: value.field_id.name == "quality_status"
+                )
+                self.assertEqual(tracking.old_value_char, selection[previous])
+                self.assertEqual(tracking.new_value_char, selection[quality])
+                self.assertEqual(self.device.state, "wip")
+                self.assertEqual(self.device.current_product_id, self.product_a)
+                self.assertEqual(self.device.final_lot_id, self.lot)
+                self.assertEqual(self.device.final_lot_history_ids, self.lot)
+
     def test_current_final_lot_is_linked_to_history(self):
         self.assertEqual(self.lot.pinout_device_id, self.device)
         self.assertEqual(self.device.final_lot_history_ids, self.lot)

@@ -283,9 +283,11 @@ class TestPinoutDeviceBundleLifecycle(TransactionCase):
             self.bundle.action_mark_ready_for_sale()
         detached_device.final_lot_id = self.lots[0]
 
-        detached_device.quality_status = "unknown"
-        with self.assertRaisesRegex(ValidationError, "Quality Status OK"):
-            self.bundle.action_mark_ready_for_sale()
+        for quality in ("unknown", "testing"):
+            detached_device.quality_status = quality
+            with self.assertRaisesRegex(ValidationError, "Quality Status OK"):
+                self.bundle.action_mark_ready_for_sale()
+            self.assertEqual(self.bundle.state, "draft")
         detached_device.quality_status = "ok"
 
         detached_device.state = "wip"

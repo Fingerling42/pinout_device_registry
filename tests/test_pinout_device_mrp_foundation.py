@@ -168,7 +168,7 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
     def test_untracked_batch_synchronizes_devices_after_completion(self):
         devices = self._create_device(
             quality_status="needs_test"
-        ) | self._create_device(quality_status="needs_test")
+        ) | self._create_device(quality_status="testing")
         production = self._create_production(quantity=2.0)
         production.pinout_device_ids = [Command.set(devices.ids)]
         production.action_confirm()
@@ -180,7 +180,7 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
             set(devices.mapped("current_product_id")), {self.target_product}
         )
         self.assertEqual(set(devices.mapped("state")), {"ready_for_packaging"})
-        self.assertEqual(set(devices.mapped("quality_status")), {"needs_test"})
+        self.assertEqual(devices.mapped("quality_status"), ["needs_test", "testing"])
         self.assertEqual(set(devices.mapped("location_id")), {self.finished_location})
         for device in devices:
             self.assertTrue(
@@ -320,7 +320,7 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
 
     def test_tracked_completion_synchronizes_device_and_final_serial(self):
         self.target_template.tracking = "serial"
-        device = self._create_device(state="rework", quality_status="needs_test")
+        device = self._create_device(state="rework", quality_status="testing")
         production = self._create_production()
         production.pinout_device_ids = [Command.set(device.ids)]
         production.action_confirm()
@@ -331,7 +331,7 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
         self.assertEqual(production.state, "done")
         self.assertEqual(device.current_product_id, self.target_product)
         self.assertEqual(device.state, "ready_for_packaging")
-        self.assertEqual(device.quality_status, "needs_test")
+        self.assertEqual(device.quality_status, "testing")
         self.assertEqual(device.location_id, self.finished_location)
         self.assertEqual(device.final_lot_id, prepared_lot)
         self.assertIn(prepared_lot, device.final_lot_history_ids)

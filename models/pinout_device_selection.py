@@ -18,5 +18,6 @@ QUALITY_STATUS_SELECTION = [
     ("unknown", "Unknown"),
     ("ok", "OK"),
     ("needs_test", "Needs Test"),
+    ("testing", "Testing"),
     ("failed", "Failed"),
 ]
