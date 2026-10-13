@@ -1,6 +1,6 @@
 {
     "name": "Pinout Device Registry",
-    "version": "17.0.1.13.0",
+    "version": "17.0.1.14.0",
     "category": "Inventory/Manufacturing",
     "summary": "Generic hardware device registry for physical device identity, lifecycle, bundles, and final serial linkage",
     "author": "Pinout LTD",
@@ -29,6 +29,7 @@
         "views/stock_lot_views.xml",
         "views/pinout_device_views.xml",
         "views/pinout_device_batch_update_wizard_views.xml",
+        "views/pinout_device_batch_create_wizard_views.xml",
         "views/menus.xml",
     ],
     "installable": True,
