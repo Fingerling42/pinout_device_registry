@@ -25,10 +25,16 @@ class TestPinoutDeviceBatchCreate(TransactionCase):
             }
         )
         cls.user = new_test_user(
-            cls.env, login="batch_operator", groups="stock.group_stock_user"
+            cls.env,
+            login="batch_operator",
+            groups="stock.group_stock_user",
+            context={"no_reset_password": True},
         )
         cls.other_user = new_test_user(
-            cls.env, login="batch_other", groups="stock.group_stock_user"
+            cls.env,
+            login="batch_other",
+            groups="stock.group_stock_user",
+            context={"no_reset_password": True},
         )
 
     def wizard(self, uids=None, **values):
