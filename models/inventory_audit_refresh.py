@@ -1,7 +1,6 @@
-"""Bounded background processing and explicit refresh of derived audit results."""
+"""Explicit manual refresh of derived audit results."""
 
 import logging
-from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
@@ -23,8 +22,8 @@ class InventoryAuditConfig(models.Model):
             raise AccessError(
                 _("Inventory audit calculation requires full source access.")
             )
-        # Transaction-scoped and shared by cron and manual Refresh. Hooks do not
-        # take this lock: source transactions must still invalidate the snapshot.
+        # Full and selected manual checks share a transaction-scoped lock.
+        # Source hooks must still be able to invalidate the snapshot.
         self.env.cr.execute(
             "SELECT pg_try_advisory_xact_lock(734921, %s)", [self.company_id.id]
         )
@@ -174,33 +173,12 @@ class InventoryAuditConfig(models.Model):
 
     @api.model
     def _cron_refresh(self, limit=50):
-        for config in self.sudo().search([]):
-            if not config._try_refresh_lock():
-                continue
-            if config.full_check_pending or (
-                not config.full_check_started_at
-                and (
-                    not config.last_full_check_at
-                    or config.last_full_check_at
-                    <= fields.Datetime.now() - timedelta(days=1)
-                )
-            ):
-                try:
-                    with self.env.cr.savepoint():
-                        config._queue_full_check()
-                except DatabaseError:
-                    raise
-                except Exception as exc:
-                    _logger.exception(
-                        "Inventory audit discovery failed for company %s",
-                        config.company_id.id,
-                    )
-                    config.last_error = _(
-                        "Inventory audit discovery failed (%s). Retry Refresh; see server log for details.",
-                        type(exc).__name__,
-                    )
-                    continue
-            config._process_refresh(limit)
+        """Compatibility entry point for legacy scheduled actions; never calculate.
+
+        Upgrade disables the noupdate cron. Keeping its old entry point inert
+        also prevents a re-enabled legacy action from resuming background work.
+        """
+        return None
 
     def action_refresh(self):
         self.check_access_rights("read")
@@ -213,8 +191,27 @@ class InventoryAuditConfig(models.Model):
                         "Inventory audit refresh is already running. Please retry shortly."
                     )
                 )
-            trusted._queue_full_check()
-            # Explicit full Refresh is immediate; cron alone is bounded.
+            try:
+                with self.env.cr.savepoint():
+                    trusted._queue_full_check()
+            except DatabaseError:
+                raise
+            except Exception as exc:
+                _logger.exception(
+                    "Inventory audit discovery failed for company %s",
+                    config.company_id.id,
+                )
+                trusted.write(
+                    {
+                        "full_check_pending": True,
+                        "last_error": _(
+                            "Inventory audit discovery failed (%s). Retry Refresh; see server log for details.",
+                            type(exc).__name__,
+                        ),
+                    }
+                )
+                continue
+            # Check the full scope in this request, including orphan Devices.
             count = sum(
                 self.env[model]
                 .sudo()
@@ -274,8 +271,8 @@ class PinoutDevice(models.Model):
                     groups |= Group._get_or_create(
                         config.company_id, device.current_product_id, device.location_id
                     )
-            # Failure rolls back this manual request; background refresh retains
-            # diagnostics and retries. Neither path returns privileged sources.
+            # Failure rolls back the selected check. Full-scope checks instead
+            # isolate errors per group. Neither path returns privileged sources.
             trusted._recalculate(groups, devices)
         if self and not refreshed:
             raise UserError(

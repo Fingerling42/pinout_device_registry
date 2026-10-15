@@ -115,12 +115,19 @@ to investigate stock or registration; it does not mark existing Devices as wrong
 
 The Device's Inventory Audit tab shows status, details, last successful check,
 and a separate pending/stale indicator. Inventory and Registry changes mark
-affected results pending in the same transaction. A cron runs every minute,
-processing up to 50 groups or ungrouped Devices per company; a full recovery
-pass runs daily and after scope changes. Refresh on a Device checks its whole
-group immediately; Refresh on the dashboard checks the company's full scope.
-Errors preserve the last successful result as stale until a successful retry.
-Refresh the page to see background updates.
+affected results pending in the same transaction, without recalculating them.
+Checks run only when requested: Refresh on a Device checks its current and
+previous groups immediately; Refresh on the dashboard checks the company's
+full scope, including stock without registered Devices. Scope changes require
+another manual full check. There is no scheduled or daily recalculation; the
+legacy scheduled action is inactive on installation and disabled on upgrade.
+
+A full check preserves successfully checked groups when another group fails.
+Failed groups retain their last successful snapshot as stale, with an error;
+retry Refresh manually. The last full check date advances only after the whole
+pass succeeds. Discovery errors also preserve previous snapshots. A failed
+selected-Device check rolls back that request. Refresh the page if the displayed
+results have not updated after a manual check.
 
 Audit results respect warehouse access and source record rules. The audit
 updates only configuration and derived results; it never repairs stock,

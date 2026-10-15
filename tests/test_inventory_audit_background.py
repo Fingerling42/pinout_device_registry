@@ -32,8 +32,8 @@ class TestInventoryAuditBackground(InventoryAuditCase):
     _finish_pending_one_at_time = (
         refresh.TestInventoryAuditRefresh._finish_pending_one_at_time
     )
-    test_bounded_cron = (
-        refresh.TestInventoryAuditRefresh.test_bounded_cron_discovery_and_idempotence
+    test_bounded_manual = (
+        refresh.TestInventoryAuditRefresh.test_bounded_manual_processing_and_idempotence
     )
     test_full_refresh = refresh.TestInventoryAuditRefresh.test_full_refresh_does_not_repeat_groups_for_initially_ungrouped_devices
     test_incomplete_devices = refresh.TestInventoryAuditRefresh.test_pending_incomplete_devices_are_bounded_and_finish
