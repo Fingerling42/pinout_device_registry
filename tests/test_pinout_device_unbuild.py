@@ -1,14 +1,20 @@
 from odoo import Command
 from odoo.exceptions import UserError
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import tagged
+
+from .common_inventory_audit import InventoryAuditCompanyCase
 
 
 @tagged("post_install", "-at_install")
-class TestPinoutDeviceUnbuild(TransactionCase):
+class TestPinoutDeviceUnbuild(InventoryAuditCompanyCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.stock_location = cls.env.ref("stock.stock_location_stock")
+        cls.stock_location = (
+            cls.env["stock.warehouse"]
+            .search([("company_id", "=", cls.env.company.id)], limit=1)
+            .lot_stock_id
+        )
         cls.tracked_product = cls.env["product.product"].create(
             {
                 "name": "Registry Unbuild Retail Unit",

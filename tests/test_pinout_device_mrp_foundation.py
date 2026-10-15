@@ -1,14 +1,20 @@
 from odoo import Command
 from odoo.exceptions import ValidationError
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import tagged
+
+from .common_inventory_audit import InventoryAuditCompanyCase
 
 
 @tagged("post_install", "-at_install")
-class TestPinoutDeviceMrpFoundation(TransactionCase):
+class TestPinoutDeviceMrpFoundation(InventoryAuditCompanyCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.stock_location = cls.env.ref("stock.stock_location_stock")
+        cls.stock_location = (
+            cls.env["stock.warehouse"]
+            .search([("company_id", "=", cls.env.company.id)], limit=1)
+            .lot_stock_id
+        )
         cls.finished_location = cls.env["stock.location"].create(
             {
                 "name": "Registry MO Finished Forms",

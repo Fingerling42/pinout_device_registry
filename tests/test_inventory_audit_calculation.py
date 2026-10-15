@@ -43,7 +43,7 @@ class InventoryAuditCase(InventoryAuditCompanyCase):
         )
 
     def device(self, name="CALC-1", product=None, location=None, **values):
-        return self.env["pinout.device"].create(
+        device = self.env["pinout.device"].create(
             {
                 "device_uid": name,
                 "device_type_id": self.device_type.id,
@@ -52,6 +52,13 @@ class InventoryAuditCase(InventoryAuditCompanyCase):
                 **values,
             }
         )
+        if not device.location_id.company_id:
+            # An unlocated fixture belongs to this test's audit. Source hooks
+            # may otherwise assign it to an older, unrelated configuration.
+            self.env["pinout.inventory.audit.device"].sudo()._for_device(
+                device, self.env.company
+            )
+        return device
 
     def quant(self, qty, product=None, location=None, lot=None, **values):
         return self.env["stock.quant"].create(

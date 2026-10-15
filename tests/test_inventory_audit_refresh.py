@@ -428,7 +428,14 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
 
         cleanup_ids = None
         try:
-            with self.registry.cursor() as setup_cr:
+            # These sources have no committed audit configuration. Their global
+            # scope hooks are irrelevant to the calculation race and would lock
+            # unrelated configurations held by the main test transaction.
+            # Keep Quant dirty markers enabled in the actual source transaction.
+            with (
+                self.registry.cursor() as setup_cr,
+                patch.object(type(self.config), "_invalidate_scope", return_value=None),
+            ):
                 setup_cr.execute("SET LOCAL lock_timeout = '5s'")
                 env = api.Environment(setup_cr, SUPERUSER_ID, {})
                 partner = env["res.partner"].create({"name": "Concurrency fixture"})
@@ -549,7 +556,12 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                     retry_cr.commit()
         finally:
             if cleanup_ids:
-                with self.registry.cursor() as cleanup_cr:
+                with (
+                    self.registry.cursor() as cleanup_cr,
+                    patch.object(
+                        type(self.config), "_invalidate_scope", return_value=None
+                    ),
+                ):
                     env = api.Environment(cleanup_cr, SUPERUSER_ID, {})
                     device_id, template_id, type_id = cleanup_ids
                     env["pinout.inventory.audit.group"].browse(group_id).unlink()

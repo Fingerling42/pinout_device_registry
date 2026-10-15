@@ -236,12 +236,20 @@ class PinoutDevice(models.Model):
         Config = self.env["pinout.inventory.audit.config"]
         Config.check_access_rights("read")
         configs = Config.search([])
+        Result = self.env["pinout.inventory.audit.device"].sudo()
+        previous = Result.search([("device_id", "in", self.ids)])
+        # Without a Location company, keep the snapshot's owner so the previous
+        # group is checked once instead of moving the result through all audits.
+        companies = {result.device_id.id: result.company_id.id for result in previous}
         refreshed = False
         for config in configs:
             devices = self.sudo().filtered(
                 lambda d, config=config: (
-                    not d.location_id.company_id
-                    or d.location_id.company_id == config.company_id
+                    (
+                        d.location_id.company_id.id
+                        or companies.get(d.id, self.env.company.id)
+                    )
+                    == config.company_id.id
                 )
             )
             if not devices:
@@ -255,7 +263,6 @@ class PinoutDevice(models.Model):
                 )
             refreshed = True
             # Refresh selected current keys and previous snapshot groups.
-            Result = self.env["pinout.inventory.audit.device"].sudo()
             groups = Result.search(
                 [
                     ("device_id", "in", devices.ids),
