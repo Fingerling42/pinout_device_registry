@@ -32,7 +32,11 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         self.quant(1)
         self.quant(3, location=self.locations[1])
         self.config._cron_refresh(limit=1)
-        groups = self.env["pinout.inventory.audit.group"].sudo().search([])
+        groups = (
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search([("company_id", "=", self.env.company.id)])
+        )
         self.assertEqual(len(groups), 2)
         self.assertEqual(len(groups.filtered("pending")), 1)
         self.assertTrue(self.config.full_check_started_at)
@@ -43,13 +47,16 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         self.assertFalse(self.config.full_check_started_at)
         self.config._cron_refresh(limit=1)
         self.assertEqual(
-            groups, self.env["pinout.inventory.audit.group"].sudo().search([])
+            groups,
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search([("company_id", "=", self.env.company.id)]),
         )
         surplus = groups.filtered(lambda g: g.location_id == self.locations[1])
         self.assertEqual(surplus.surplus_quantity, 3)
 
     def test_daily_recovery_and_scope_change(self):
-        self.device()
+        device = self.device()
         quant = self.quant(1)
         self.config.action_refresh()
         # Simulate a source change bypassing ORM hooks: the daily pass repairs it.
@@ -61,16 +68,17 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         self.config.last_full_check_at = fields.Datetime.now() - timedelta(days=2)
         self.config._cron_refresh()
         self.assertEqual(
-            self.env["pinout.inventory.audit.group"].sudo().search([]).status,
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search([("company_id", "=", self.env.company.id)])
+            .status,
             "group_shortage",
         )
         self.config.scope_ids.filtered(
             lambda s: s.location_id == self.locations[0]
         ).unlink()
         self.config._cron_refresh()
-        self.assertEqual(
-            self.result(self.env["pinout.device"].search([])).status, "not_checked"
-        )
+        self.assertEqual(self.result(device).status, "not_checked")
         self.assertFalse(self.config.full_check_pending)
 
     def test_device_refresh_updates_entire_group_only(self):

@@ -1,20 +1,20 @@
 from odoo import fields
 from odoo.exceptions import UserError, ValidationError
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import tagged
+
+from .common_inventory_audit import InventoryAuditCompanyCase
 
 
 @tagged("post_install", "-at_install")
-class TestInventoryAuditScope(TransactionCase):
+class TestInventoryAuditScope(InventoryAuditCompanyCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Upgrade fixtures contain real configured forms. Isolate this test's
-        # product scope without assuming an otherwise empty registry.
-        cls.env["pinout.device.type"].search([]).write({"active": False})
         cls.Config = cls.env["pinout.inventory.audit.config"]
         cls.Scope = cls.env["pinout.inventory.audit.scope"]
         cls.Location = cls.env["stock.location"]
         cls.config = cls.Config.create({})
+        cls.existing_products = cls.config._get_products()
         cls.warehouses = cls.env["stock.warehouse"].create(
             [
                 {"name": "Audit Warehouse A", "code": "AWA"},
@@ -205,25 +205,29 @@ class TestInventoryAuditScope(TransactionCase):
 
     def test_product_forms_without_devices_and_changes(self):
         self.add_scope()
-        self.assertEqual(self.config._get_products(), self.product)
+        self.assertEqual(
+            self.config._get_products(), self.existing_products | self.product
+        )
         group, result = self.snapshot()
         self.device_type.allowed_product_template_ids = [fields.Command.clear()]
         self.assertFalse(group.exists())
         self.assertEqual(result.status, "not_checked")
-        self.assertFalse(self.config._get_products())
+        self.assertEqual(self.config._get_products(), self.existing_products)
         self.device_type.allowed_product_template_ids = [
             fields.Command.set(self.product.product_tmpl_id.ids)
         ]
         self.device_type.active = False
-        self.assertFalse(self.config._get_products())
+        self.assertEqual(self.config._get_products(), self.existing_products)
         self.device_type.active = True
         self.product.active = False
-        self.assertFalse(self.config._get_products())
+        self.assertEqual(self.config._get_products(), self.existing_products)
         self.product.active = True
         self.product.product_tmpl_id.type = "consu"
-        self.assertFalse(self.config._get_products())
+        self.assertEqual(self.config._get_products(), self.existing_products)
         self.product.product_tmpl_id.type = "product"
-        self.assertEqual(self.config._get_products(), self.product)
+        self.assertEqual(
+            self.config._get_products(), self.existing_products | self.product
+        )
 
     def test_config_removal_clears_matches(self):
         self.add_scope()
@@ -260,17 +264,30 @@ class TestInventoryAuditScope(TransactionCase):
         ]
         variants = template.product_variant_ids
         self.assertEqual(len(variants), 2)
-        self.assertEqual(self.config._get_products(), self.product | variants)
+        self.assertEqual(
+            self.config._get_products(),
+            self.existing_products | self.product | variants,
+        )
         variants[0].active = False
-        self.assertEqual(self.config._get_products(), self.product | variants[1])
+        self.assertEqual(
+            self.config._get_products(),
+            self.existing_products | self.product | variants[1],
+        )
         other = self.env["res.company"].create({"name": "Product Other Company"})
         template.company_id = other
-        self.assertEqual(self.config._get_products(), self.product)
+        self.assertEqual(
+            self.config._get_products(), self.existing_products | self.product
+        )
         template.company_id = False
         template.active = False
-        self.assertEqual(self.config._get_products(), self.product)
+        self.assertEqual(
+            self.config._get_products(), self.existing_products | self.product
+        )
         self.device_type.active = False
-        self.assertFalse(self.config.with_context(active_test=False)._get_products())
+        self.assertEqual(
+            self.config.with_context(active_test=False)._get_products(),
+            self.existing_products,
+        )
 
     def test_company_change_and_source_preservation(self):
         scope = self.add_scope()

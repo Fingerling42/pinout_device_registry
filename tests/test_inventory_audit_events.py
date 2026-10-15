@@ -1,13 +1,14 @@
 from unittest.mock import patch
 
 from odoo import fields
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import tagged
 
 from . import test_inventory_audit_calculation as calculation
+from .common_inventory_audit import InventoryAuditCompanyCase
 
 
 @tagged("post_install", "-at_install")
-class TestInventoryAuditEvents(TransactionCase):
+class TestInventoryAuditEvents(InventoryAuditCompanyCase):
     device = calculation.TestInventoryAuditCalculation.device
     quant = calculation.TestInventoryAuditCalculation.quant
     serial = calculation.TestInventoryAuditCalculation.serial
@@ -17,7 +18,6 @@ class TestInventoryAuditEvents(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.env["pinout.device.type"].search([]).write({"active": False})
         cls.config = cls.env["pinout.inventory.audit.config"].sudo().create({})
         cls.locations = cls.env["stock.location"].create(
             [
@@ -50,7 +50,11 @@ class TestInventoryAuditEvents(TransactionCase):
         group = self.run_audit()
         checked_at = group.checked_at
         quant.location_id = self.locations[1]
-        groups = self.env["pinout.inventory.audit.group"].sudo().search([])
+        groups = (
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search([("company_id", "=", self.env.company.id)])
+        )
         self.assertEqual(len(groups), 2)
         self.assertTrue(all(groups.mapped("pending")))
         self.assertTrue(self.result(device).pending)
@@ -181,11 +185,17 @@ class TestInventoryAuditEvents(TransactionCase):
                     for i in range(50)
                 ]
             )
-        groups = self.env["pinout.inventory.audit.group"].sudo().search([])
+        groups = (
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search([("company_id", "=", self.env.company.id)])
+        )
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups.generation, 2)
         self.assertEqual(
-            self.env["pinout.inventory.audit.device"].sudo().search_count([]),
+            self.env["pinout.inventory.audit.device"]
+            .sudo()
+            .search_count([("company_id", "=", self.env.company.id)]),
             len(devices),
         )
         self.assertFalse(groups.checked_at)
@@ -289,7 +299,11 @@ class TestInventoryAuditEvents(TransactionCase):
             }
         )
         self.quant(2, location=foreign)
-        self.assertFalse(self.env["pinout.inventory.audit.group"].sudo().search([]))
+        self.assertFalse(
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search([("company_id", "=", self.env.company.id)])
+        )
         device = self.device(location=self.locations[2])
         self.run_audit()
         self.assertEqual(self.result(device).status, "not_checked")

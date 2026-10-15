@@ -2,23 +2,16 @@ from unittest.mock import patch
 
 from odoo import fields
 from odoo.exceptions import AccessError
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import tagged
 from odoo.tests.common import new_test_user
 
+from .common_inventory_audit import InventoryAuditCompanyCase
 
-class InventoryAuditCase(TransactionCase):
+
+class InventoryAuditCase(InventoryAuditCompanyCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # These scenarios own the audit population. TransactionCase restores
-        # legacy Devices before the upgrade verifier checks migrated sources.
-        legacy_devices = (
-            cls.env["pinout.device"].with_context(active_test=False).search([])
-        )
-        legacy_devices.write({"final_lot_id": False})
-        legacy_devices.final_lot_history_ids.write({"pinout_device_id": False})
-        legacy_devices.unlink()
-        cls.env["pinout.device.type"].search([]).write({"active": False})
         cls.config = cls.env["pinout.inventory.audit.config"].sudo().create({})
         cls.locations = cls.env["stock.location"].create(
             [

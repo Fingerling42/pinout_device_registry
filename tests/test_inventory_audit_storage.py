@@ -1,13 +1,15 @@
 from odoo import fields
 from odoo.exceptions import AccessError, UserError, ValidationError
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import tagged
 from odoo.tests.common import new_test_user
 from odoo.tools import mute_logger
 from psycopg2 import IntegrityError
 
+from .common_inventory_audit import InventoryAuditCompanyCase
+
 
 @tagged("post_install", "-at_install")
-class TestInventoryAuditStorage(TransactionCase):
+class TestInventoryAuditStorage(InventoryAuditCompanyCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -137,7 +139,9 @@ class TestInventoryAuditStorage(TransactionCase):
         self.assertTrue(group._store_success(group.generation, values))
         self.assertFalse(group.pending)
         self.assertFalse(group.last_error)
-        self.assertEqual(len(self.Group.search([])), 1)
+        self.assertEqual(
+            len(self.Group.search([("product_id", "=", self.product.id)])), 1
+        )
 
     def test_changed_keys_and_discard_clear_old_match(self):
         group = self.group()

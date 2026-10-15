@@ -209,6 +209,16 @@ class TestInventoryAuditViews(InventoryAuditCase):
 
 @tagged("post_install", "-at_install")
 class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.browser_user = new_test_user(
+            cls.env,
+            login="audit_browser_operator",
+            groups="stock.group_stock_user",
+            context={"no_reset_password": True},
+        )
+
     def test_dashboard_refresh_surplus_and_stock_navigation(self):
         self.device("UI-AUDIT-SHORTAGE")
         self.quant(3, location=self.locations[1])
@@ -245,7 +255,7 @@ class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
                 console.log('test successful');
             })().catch(error => console.error(error));
             """,
-            login="admin",
+            login=self.browser_user.login,
             timeout=120,
         )
 
@@ -280,7 +290,7 @@ class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
                 console.log('test successful');
             })().catch(error => console.error(error));
             """,
-            login="admin",
+            login=self.browser_user.login,
             timeout=120,
         )
         dashboard = self.env.ref(
@@ -307,6 +317,6 @@ class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
                 console.log('test successful');
             })().catch(error => console.error(error));
             """,
-            login="admin",
+            login=self.browser_user.login,
             timeout=120,
         )
