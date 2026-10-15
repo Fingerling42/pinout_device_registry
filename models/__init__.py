@@ -12,3 +12,5 @@ from . import stock_picking
 from . import inventory_audit
 from . import inventory_audit_scope
 from . import inventory_audit_calculation
+
+from . import inventory_audit_events

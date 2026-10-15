@@ -152,7 +152,45 @@ class TestPinoutDeviceUnbuild(TransactionCase):
         )
         unbuild = self._create_unbuild(self.tracked_product, lot_id=self.lot.id)
 
+        self.device.location_id = self.stock_location
+        audit = (
+            self.env["pinout.inventory.audit.config"]
+            .sudo()
+            .create(
+                {
+                    "scope_ids": [
+                        Command.create({"location_id": self.stock_location.id})
+                    ],
+                }
+            )
+        )
+        audit._recalculate()
+        old_group = (
+            self.env["pinout.inventory.audit.device"]
+            .sudo()
+            .search([("device_id", "=", self.device.id)])
+            .group_id
+        )
+
         unbuild.action_unbuild()
+
+        self.assertTrue(old_group.pending)
+        new_group = (
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search(
+                [
+                    ("product_id", "=", self.intermediate_product.id),
+                    ("location_id", "=", self.stock_location.id),
+                ]
+            )
+        )
+        self.assertTrue(new_group)
+        self.assertTrue(new_group.pending)
+        audit._recalculate()
+        self.assertEqual(old_group.expected_quantity, 0)
+        self.assertEqual(new_group.expected_quantity, 1)
+        self.assertEqual(new_group.status, "match")
 
         self.assertEqual(unbuild.state, "done")
         self.assertEqual(unbuild.pinout_device_id, self.device)

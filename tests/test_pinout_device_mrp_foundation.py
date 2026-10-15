@@ -173,7 +173,45 @@ class TestPinoutDeviceMrpFoundation(TransactionCase):
         production.pinout_device_ids = [Command.set(devices.ids)]
         production.action_confirm()
 
+        devices.location_id = self.stock_location
+        audit = (
+            self.env["pinout.inventory.audit.config"]
+            .sudo()
+            .create(
+                {
+                    "scope_ids": [
+                        Command.create({"location_id": self.stock_location.id})
+                    ],
+                }
+            )
+        )
+        audit._recalculate()
+        old_group = (
+            self.env["pinout.inventory.audit.device"]
+            .sudo()
+            .search([("device_id", "=", devices[0].id)])
+            .group_id
+        )
+
         production.button_mark_done()
+
+        self.assertTrue(old_group.pending)
+        new_group = (
+            self.env["pinout.inventory.audit.group"]
+            .sudo()
+            .search(
+                [
+                    ("product_id", "=", self.target_product.id),
+                    ("location_id", "=", self.finished_location.id),
+                ]
+            )
+        )
+        self.assertTrue(new_group)
+        self.assertTrue(new_group.pending)
+        audit._recalculate()
+        self.assertEqual(old_group.expected_quantity, 0)
+        self.assertEqual(new_group.expected_quantity, 2)
+        self.assertEqual(new_group.status, "match")
 
         self.assertEqual(production.state, "done")
         self.assertEqual(
