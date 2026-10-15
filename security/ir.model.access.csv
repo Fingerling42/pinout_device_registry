@@ -9,3 +9,7 @@ access_pinout_device_type_attribute_line_internal,pinout.device.type.attribute.l
 access_product_attribute_value_pinout_device_internal,product.attribute.value.pinout.device.internal,product.model_product_attribute_value,base.group_user,1,1,0,0
 access_pinout_device_batch_create_wizard_internal,pinout.device.batch.create.wizard.internal,model_pinout_device_batch_create_wizard,base.group_user,1,1,1,1
 access_pinout_device_batch_create_line_internal,pinout.device.batch.create.line.internal,model_pinout_device_batch_create_line,base.group_user,1,1,1,1
+access_inventory_audit_config,inventory.audit.config,model_pinout_inventory_audit_config,stock.group_stock_user,1,1,1,1
+access_inventory_audit_scope,inventory.audit.scope,model_pinout_inventory_audit_scope,stock.group_stock_user,1,1,1,1
+access_inventory_audit_group,inventory.audit.group,model_pinout_inventory_audit_group,stock.group_stock_user,1,0,0,0
+access_inventory_audit_device,inventory.audit.device,model_pinout_inventory_audit_device,stock.group_stock_user,1,0,0,0

@@ -12,3 +12,5 @@ from . import test_pinout_device_state_sync
 from . import test_pinout_device_uid
 from . import test_pinout_device_unbuild
 from . import test_pinout_device_batch_create
+
+from . import test_inventory_audit_storage
