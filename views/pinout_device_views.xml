@@ -163,7 +163,7 @@
                         </page>
                         <page string="Inventory Audit" name="inventory_audit" groups="stock.group_stock_user">
                             <button name="action_refresh_inventory_audit" string="Refresh Inventory Audit" type="object" class="btn-primary"/>
-                            <div class="alert alert-warning" invisible="not inventory_check_pending">Pending / stale: the last successful status is not current confirmation.</div>
+                            <div class="alert alert-warning" role="status" invisible="not inventory_check_pending">Pending / stale: the last successful status is not current confirmation.</div>
                             <group>
                                 <field name="inventory_check_status"/>
                                 <field name="inventory_check_pending"/>

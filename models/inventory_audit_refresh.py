@@ -116,9 +116,13 @@ class InventoryAuditConfig(models.Model):
             if len(groups) < limit
             else Result.browse()
         )
-        units = [(group, self.env["pinout.device"]) for group in groups]
-        units += [(Group.browse(), result.device_id) for result in results]
-        for group, devices in units:
+        units = [(group, Result.browse()) for group in groups]
+        units += [(Group.browse(), result) for result in results]
+        for group, result in units:
+            # An earlier group may have checked this initially ungrouped Device.
+            if result and not result.pending:
+                continue
+            devices = result.device_id
             targets = group | Group.browse()
             affected = group.device_result_ids | Result.search(
                 [("device_id", "in", devices.ids)]

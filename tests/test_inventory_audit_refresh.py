@@ -12,6 +12,21 @@ from .test_inventory_audit_calculation import InventoryAuditCase
 
 @tagged("post_install", "-at_install")
 class TestInventoryAuditRefresh(InventoryAuditCase):
+    def test_full_refresh_does_not_repeat_groups_for_initially_ungrouped_devices(self):
+        for i in range(4):
+            self.device("FIRST-REFRESH-%s" % i, location=self.locations[i % 2])
+        with patch.object(
+            type(self.config),
+            "_calculate",
+            autospec=True,
+            side_effect=type(self.config)._calculate,
+        ) as calculate:
+            self.config.action_refresh()
+        self.assertEqual(calculate.call_count, 2)
+        self.assertFalse(
+            self.env["pinout.inventory.audit.device"].search([("pending", "=", True)])
+        )
+
     def test_bounded_cron_discovery_and_idempotence(self):
         self.device()
         self.quant(1)

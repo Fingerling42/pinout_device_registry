@@ -262,7 +262,8 @@ class TestInventoryAuditStorage(TransactionCase):
         )
         self.assertEqual(group.source_device_ids, self.device)
         self.assertEqual(group.source_quant_ids, quant)
-        self.device.current_product_id = False
+        self.device.write({"current_product_id": False, "active": False})
+        self.assertEqual(group.source_device_ids, self.device)
         group._mark_pending()
         rule = self.env["ir.rule"].create(
             {
@@ -294,7 +295,7 @@ class TestInventoryAuditStorage(TransactionCase):
         group._store_success(
             group.generation, {"status": "match", "actual_quantity": 0}
         )
-        self.assertFalse(group.source_device_ids)
+        self.assertFalse(group.with_context(active_test=False).source_device_ids)
         self.assertFalse(group.source_quant_ids)
         self.assertTrue(operator_group.search([("id", "=", group.id)]))
 

@@ -57,7 +57,7 @@
                     <button name="action_open_quants" type="object" string="Stock Quants"/>
                 </header>
                 <sheet>
-                    <div class="alert alert-warning" invisible="not pending">Pending / stale: this is the last successful snapshot, not current confirmation.</div>
+                    <div class="alert alert-warning" role="status" invisible="not pending">Pending / stale: this is the last successful snapshot, not current confirmation.</div>
                     <group>
                         <field name="company_id"/>
                         <field name="product_id" options="{'no_create': True}"/>
@@ -150,7 +150,7 @@
                         <field name="last_full_check_at"/>
                         <field name="last_error" invisible="not last_error"/>
                     </group>
-                    <div class="alert alert-info"><field name="scope_message" nolabel="1"/></div>
+                    <div class="alert alert-info" role="status"><field name="scope_message" nolabel="1"/></div>
                     <p>Last successful results are shown below. Pending / stale results await Refresh. Surplus groups may need registration; untracked shortages do not identify missing UIDs.</p>
                     <separator string="Exact Mismatch and Group Shortage"/>
                     <field name="mismatch_group_ids" nolabel="1" readonly="1" context="{'tree_view_ref': 'pinout_device_registry.inventory_audit_group_tree', 'form_view_ref': 'pinout_device_registry.inventory_audit_group_form'}"/>

@@ -119,11 +119,22 @@ class InventoryAuditResult(models.AbstractModel):
     last_error = fields.Text(readonly=True)
     # Retain source identities until the next successful snapshot: sources can
     # move out of the current group while its stale quantities remain stored.
-    source_product_ids = fields.Many2many("product.product", readonly=True)
-    source_location_ids = fields.Many2many("stock.location", readonly=True)
-    source_quant_ids = fields.Many2many("stock.quant", readonly=True)
-    source_lot_ids = fields.Many2many("stock.lot", readonly=True)
-    source_device_ids = fields.Many2many("pinout.device", readonly=True)
+    # Archived sources still protect a stale snapshot after leaving its group.
+    source_product_ids = fields.Many2many(
+        "product.product", readonly=True, context={"active_test": False}
+    )
+    source_location_ids = fields.Many2many(
+        "stock.location", readonly=True, context={"active_test": False}
+    )
+    source_quant_ids = fields.Many2many(
+        "stock.quant", readonly=True, context={"active_test": False}
+    )
+    source_lot_ids = fields.Many2many(
+        "stock.lot", readonly=True, context={"active_test": False}
+    )
+    source_device_ids = fields.Many2many(
+        "pinout.device", readonly=True, context={"active_test": False}
+    )
 
     def _lock(self):
         # Storage writes belong to trusted audit code, not RPC clients.

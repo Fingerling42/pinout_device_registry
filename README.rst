@@ -37,6 +37,8 @@ Features
   result back to its Registry Device.
 * Create new Devices in batches from editable rows or pasted spreadsheet columns.
 * Update selected Device fields in batches.
+* Audit Registry Devices against Inventory, with exact serial checks, grouped
+  untracked shortages, surplus reminders, and visible stale results.
 * Define reusable Bundle Types with generated or manually entered Bundle IDs.
 * Validate Bundle composition against the variant-specific active Kit BoM and
   its Apply on Variants rules.
@@ -79,8 +81,51 @@ Create Bundle Types and configure their code, allowed Bundle Product Forms, and
 whether they require a Kit BoM. Kit products must have an active phantom BoM
 with the correct Apply on Variants values on component lines.
 
+For warehouse users, ``Configuration -> Inventory Audit`` defines the current
+company's audit scope. Select locations and enable Include Child Locations for
+each root as needed. Only internal, non-scrap locations are checked; overlapping
+roots do not duplicate quantities. No scope is selected automatically on install
+or upgrade. Stockable Product Forms from active Device Types are checked,
+including forms with stock but no registered Devices.
+
 Usage
 -----
+
+Inventory Audit
+~~~~~~~~~~~~~~~
+
+Open ``Pinout -> Device Registry -> Inventory Audit`` to see discrepancies and
+the number of groups with unregistered surplus. Browse Groups provides filters
+for matches, shortages, surplus, stale results, and errors, with links to Devices,
+Products, and Stock Quants. Each group uses an exact Product Variant, Location,
+and company; surplus in another group never compensates for a shortage.
+
+Serial-tracked forms are checked against the current Final Lot, its Product,
+company, quantity one, and exact location. Missing or inconsistent serial stock
+gives Exact Mismatch. Missing Final Lot, lot tracking, incomplete metadata, or
+locations outside the configured scope give Not Checked with a reason.
+Historical Final Lots do not replace the current identity.
+
+Untracked forms compare the number of active Devices against physical quantity,
+including reserved stock. Sold, Scrapped, and archived Devices are excluded.
+Group Shortage applies to every Device in the group and cannot identify a
+missing UID. Match confirms sufficient group quantity without proving the
+presence of a particular untracked Device. Unregistered Surplus is a reminder
+to investigate stock or registration; it does not mark existing Devices as wrong.
+
+The Device's Inventory Audit tab shows status, details, last successful check,
+and a separate pending/stale indicator. Inventory and Registry changes mark
+affected results pending in the same transaction. A cron runs every minute,
+processing up to 50 groups or ungrouped Devices per company; a full recovery
+pass runs daily and after scope changes. Refresh on a Device checks its whole
+group immediately; Refresh on the dashboard checks the company's full scope.
+Errors preserve the last successful result as stale until a successful retry.
+Refresh the page to see background updates.
+
+Audit results respect warehouse access and source record rules. The audit
+updates only configuration and derived results; it never repairs stock,
+identity, Product, Location, lifecycle, quality, or Final Lot links. Internal
+Transfers do not automatically update Registry Location.
 
 Devices
 ~~~~~~~
