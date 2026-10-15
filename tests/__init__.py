@@ -18,3 +18,4 @@ from . import test_inventory_audit_scope
 from . import test_inventory_audit_calculation
 
 from . import test_inventory_audit_events
+from . import test_inventory_audit_refresh

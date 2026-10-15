@@ -6,8 +6,7 @@ from odoo.tests import TransactionCase, tagged
 from odoo.tests.common import new_test_user
 
 
-@tagged("post_install", "-at_install")
-class TestInventoryAuditCalculation(TransactionCase):
+class InventoryAuditCase(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -92,6 +91,9 @@ class TestInventoryAuditCalculation(TransactionCase):
             .search([("device_id", "=", device.id)])
         )
 
+
+@tagged("post_install", "-at_install")
+class TestInventoryAuditCalculation(InventoryAuditCase):
     def test_untracked_shortage_reserved_and_surplus(self):
         devices = self.device() | self.device("CALC-2", state="reserved")
         quant = self.quant(1, reserved_quantity=1)

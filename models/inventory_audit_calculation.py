@@ -2,13 +2,14 @@ from collections import defaultdict
 
 from odoo import _, models
 from odoo.exceptions import AccessError
+from odoo.osv import expression
 from odoo.tools.float_utils import float_compare
 
 
 class InventoryAuditConfig(models.Model):
     _inherit = "pinout.inventory.audit.config"
 
-    def _calculate(self):
+    def _calculate(self, groups=None, devices=None):
         """Build a company snapshot without writing sources or audit results.
 
         Trusted callers must use sudo: a partial set of sources cannot prove a
@@ -21,7 +22,32 @@ class InventoryAuditConfig(models.Model):
             )
         products = self._get_products()
         locations = self._get_locations()
-        devices = self.env["pinout.device"].with_context(active_test=False).search([])
+        Device = self.env["pinout.device"].with_context(active_test=False)
+        all_devices = Device.search([])
+        quant_domain = []
+        keys = None
+        if groups is not None:
+            keys = {(g.product_id.id, g.location_id.id) for g in groups}
+            quant_domain = (
+                expression.OR(
+                    [
+                        [("product_id", "=", p), ("location_id", "=", loc)]
+                        for p, loc in sorted(keys)
+                    ]
+                )
+                if keys
+                else [("id", "=", False)]
+            )
+            device_domain = expression.OR(
+                [
+                    [("current_product_id", "=", p), ("location_id", "=", loc)]
+                    for p, loc in sorted(keys)
+                ]
+                + [[("id", "in", (devices | groups.device_result_ids.device_id).ids)]]
+            )
+            devices = Device.search(device_domain)
+        else:
+            devices = all_devices
         grouped_devices = defaultdict(list)
         excluded = []
         for device in devices:
@@ -49,7 +75,7 @@ class InventoryAuditConfig(models.Model):
                 reason = _("Current Product is outside the configured Product Forms.")
             if reason:
                 excluded.append((device, {"status": "not_checked", "details": reason}))
-            else:
+            elif keys is None or (device.current_product_id.id, location.id) in keys:
                 grouped_devices[(device.current_product_id.id, location.id)].append(
                     device
                 )
@@ -59,6 +85,7 @@ class InventoryAuditConfig(models.Model):
                 ("company_id", "=", self.company_id.id),
                 ("product_id", "in", products.ids),
                 ("location_id", "in", locations.ids),
+                *quant_domain,
             ],
             ["product_id", "location_id"],
             ["quantity:sum"],
@@ -68,12 +95,16 @@ class InventoryAuditConfig(models.Model):
         }
         # Keep existing zero groups so the last Device/Quant disappearing clears
         # the previous shortage/surplus instead of leaving a stale result.
-        existing = self.env["pinout.inventory.audit.group"].search(
-            [
-                ("company_id", "=", self.company_id.id),
-                ("product_id", "in", products.ids),
-                ("location_id", "in", locations.ids),
-            ]
+        existing = (
+            groups
+            if groups is not None
+            else self.env["pinout.inventory.audit.group"].search(
+                [
+                    ("company_id", "=", self.company_id.id),
+                    ("product_id", "in", products.ids),
+                    ("location_id", "in", locations.ids),
+                ]
+            )
         )
         keys = (
             set(actual)
@@ -92,7 +123,7 @@ class InventoryAuditConfig(models.Model):
         for quant in serial_quants:
             by_lot[quant.lot_id.id].append(quant)
 
-        registered_lots = devices.final_lot_id | devices.final_lot_history_ids
+        registered_lots = all_devices.final_lot_id | all_devices.final_lot_history_ids
         serial_stock = self.env["stock.quant"]._read_group(
             [
                 ("company_id", "=", self.company_id.id),
@@ -103,6 +134,7 @@ class InventoryAuditConfig(models.Model):
                 ),
                 ("location_id", "in", locations.ids),
                 ("lot_id", "not in", registered_lots.ids),
+                *quant_domain,
             ],
             ["product_id", "location_id", "lot_id"],
             ["quantity:sum"],
@@ -261,24 +293,59 @@ class InventoryAuditConfig(models.Model):
             ),
         }
 
-    def _recalculate(self):
-        """Internal entry point for later cron/Refresh; each group is atomic."""
-        snapshot = self._calculate()
+    def _recalculate(self, groups=None, devices=None):
+        """Capture generations before reading sources; each group is atomic."""
+        self.ensure_one()
+        if not self.env.su:
+            raise AccessError(
+                _("Inventory audit calculation requires full source access.")
+            )
         Group = self.env["pinout.inventory.audit.group"]
         Result = self.env["pinout.inventory.audit.device"]
+        previous_groups = (
+            Group.search([("company_id", "=", self.company_id.id)])
+            if groups is None
+            else groups
+        )
+        previous_results = Result.search([])
+        group_generations = {g.id: g.generation for g in previous_groups}
+        result_generations = {r.id: r.generation for r in previous_results}
+        snapshot = (
+            self._calculate() if groups is None else self._calculate(groups, devices)
+        )
+
+        def check_result(device):
+            result = Result.search([("device_id", "=", device.id)])
+            if result:
+                result._lock()
+                if result.generation != result_generations.get(result.id, 1):
+                    raise ValueError(
+                        "Inventory audit device changed during calculation"
+                    )
+
         for item in snapshot["groups"]:
             with self.env.cr.savepoint():
                 group = Group._get_or_create(
                     self.company_id, item["product"], item["location"]
                 )
-                generation = group.generation
+                generation = group_generations.get(group.id, 1)
+                group._lock()
+                if group.generation != generation:
+                    raise ValueError("Inventory audit group changed during calculation")
                 current = self.env["pinout.device"].browse(
                     [device.id for device, _ in item["devices"]]
                 )
-                group.device_result_ids.filtered(
+                removed = group.device_result_ids.filtered(
                     lambda result, current=current: result.device_id not in current
-                )._reset("Device is no longer a member of this inventory audit group.")
+                )
+                for result in removed:
+                    check_result(result.device_id)
+                removed._reset(
+                    "Device is no longer a member of this inventory audit group."
+                )
+                result_generations.update({r.id: r.generation for r in removed})
                 for device, values in item["devices"]:
+                    check_result(device)
                     result = Result._for_device(device, self.company_id, group)
                     if not result._store_success(result.generation, values):
                         raise ValueError(
@@ -287,6 +354,8 @@ class InventoryAuditConfig(models.Model):
                 if not group._store_success(generation, item["values"]):
                     raise ValueError("Inventory audit group changed during calculation")
         for device, values in snapshot["excluded"]:
-            result = Result._for_device(device, self.company_id)
-            result._store_success(result.generation, values)
+            with self.env.cr.savepoint():
+                check_result(device)
+                result = Result._for_device(device, self.company_id)
+                result._store_success(result.generation, values)
         return snapshot

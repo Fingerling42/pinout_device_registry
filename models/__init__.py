@@ -14,3 +14,4 @@ from . import inventory_audit_scope
 from . import inventory_audit_calculation
 
 from . import inventory_audit_events
+from . import inventory_audit_refresh

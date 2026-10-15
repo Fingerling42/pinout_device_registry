@@ -18,6 +18,7 @@
         "security/security.xml",
         "security/ir.model.access.csv",
         "data/pinout_device_bundle_sequence.xml",
+        "data/inventory_audit_cron.xml",
         "data/pinout_device_bundle_type_data.xml",
         "views/pinout_device_type_views.xml",
         "views/pinout_device_bundle_type_views.xml",
