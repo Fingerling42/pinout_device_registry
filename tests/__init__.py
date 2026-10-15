@@ -22,3 +22,4 @@ from . import test_inventory_audit_refresh
 
 from . import test_inventory_audit_views
 from . import test_inventory_audit_batch
+from . import test_inventory_audit_background

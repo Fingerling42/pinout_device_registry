@@ -12,6 +12,18 @@ from .test_inventory_audit_calculation import InventoryAuditCase
 
 @tagged("post_install", "-at_install")
 class TestInventoryAuditRefresh(InventoryAuditCase):
+    def _finish_pending_one_at_time(self):
+        domain = [("company_id", "=", self.env.company.id), ("pending", "=", True)]
+        self.assertFalse(self.env["pinout.inventory.audit.group"].search(domain))
+        Result = self.env["pinout.inventory.audit.device"]
+        for remaining in range(Result.search_count(domain), 0, -1):
+            self.assertFalse(self.config.last_full_check_at)
+            self.config._cron_refresh(limit=1)
+            self.assertEqual(Result.search_count(domain), remaining - 1)
+            self.assertEqual(bool(self.config.last_full_check_at), remaining == 1)
+        self.assertTrue(self.config.last_full_check_at)
+        self.assertFalse(self.config.full_check_started_at)
+
     def test_full_refresh_does_not_repeat_groups_for_initially_ungrouped_devices(self):
         for i in range(4):
             self.device("FIRST-REFRESH-%s" % i, location=self.locations[i % 2])
@@ -22,9 +34,20 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
             side_effect=type(self.config)._calculate,
         ) as calculate:
             self.config.action_refresh()
-        self.assertEqual(calculate.call_count, 2)
+        group_calls = [
+            call.args[1] for call in calculate.call_args_list if call.args[1]
+        ]
+        self.assertEqual(len(group_calls), 2)
+        self.assertEqual(
+            {group.location_id.id for group in group_calls}, set(self.locations[:2].ids)
+        )
+        for call in calculate.call_args_list:
+            if not call.args[1]:
+                self.assertFalse(call.args[2].location_id.company_id)
         self.assertFalse(
-            self.env["pinout.inventory.audit.device"].search([("pending", "=", True)])
+            self.env["pinout.inventory.audit.device"].search(
+                [("company_id", "=", self.env.company.id), ("pending", "=", True)]
+            )
         )
 
     def test_bounded_cron_discovery_and_idempotence(self):
@@ -43,8 +66,7 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         self.assertFalse(self.config.last_full_check_at)
         self.config._cron_refresh(limit=1)
         self.assertFalse(groups.filtered("pending"))
-        self.assertTrue(self.config.last_full_check_at)
-        self.assertFalse(self.config.full_check_started_at)
+        self._finish_pending_one_at_time()
         self.config._cron_refresh(limit=1)
         self.assertEqual(
             groups,
@@ -256,7 +278,7 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         devices = self.device(location_id=False) | self.device(
             "CALC-2", current_product_id=False
         )
-        self.config._cron_refresh(limit=1)
+        self.config._queue_full_check()
         self.assertTrue(self.config.full_check_started_at)
         self.assertEqual(
             len(
@@ -264,10 +286,9 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                 .sudo()
                 .search([("device_id", "in", devices.ids), ("pending", "=", True)])
             ),
-            1,
+            2,
         )
-        self.config._cron_refresh(limit=1)
-        self.assertTrue(self.config.last_full_check_at)
+        self._finish_pending_one_at_time()
         for device in devices:
             self.assertEqual(self.result(device).status, "not_checked")
             self.assertFalse(self.result(device).pending)

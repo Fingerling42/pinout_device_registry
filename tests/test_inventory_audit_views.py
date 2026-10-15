@@ -171,14 +171,29 @@ class TestInventoryAuditViews(InventoryAuditCase):
         )
 
     def test_dashboard_counts_and_navigation(self):
+        # Ambiguous-company Devices can already contribute diagnostics here.
+        self.config.action_refresh()
+        background_not_checked = (
+            self.env["pinout.inventory.audit.device"]
+            .search(
+                [
+                    ("company_id", "=", self.env.company.id),
+                    ("status", "=", "not_checked"),
+                ]
+            )
+            .device_id
+        )
         device, _lot = self.serial()
         self.quant(1, product=self.products[1])  # Same total, wrong serial.
         self.quant(3, location=self.locations[1])
-        self.device("INCOMPLETE", current_product_id=False)
+        incomplete = self.device("INCOMPLETE", current_product_id=False)
         self.config.action_refresh()
         self.assertEqual(self.config.mismatch_group_count, 1)
         self.assertEqual(self.config.surplus_group_count, 1)
-        self.assertEqual(self.config.not_checked_device_count, 1)
+        expected_not_checked = background_not_checked | incomplete
+        self.assertEqual(
+            self.config.not_checked_device_count, len(expected_not_checked)
+        )
         group = self.config.mismatch_group_ids
         self.assertEqual(group.exact_mismatch_count, 1)
         self.assertFalse(group.shortage_quantity)
@@ -200,10 +215,10 @@ class TestInventoryAuditViews(InventoryAuditCase):
             self.config.action_open_configuration()["res_id"], self.config.id
         )
         self.assertEqual(
-            self.env["pinout.inventory.audit.device"].search_count(
-                self.config.action_open_not_checked()["domain"]
-            ),
-            1,
+            self.env["pinout.inventory.audit.device"]
+            .search(self.config.action_open_not_checked()["domain"])
+            .device_id,
+            expected_not_checked,
         )
 
 
