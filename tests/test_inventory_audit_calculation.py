@@ -233,7 +233,20 @@ class TestInventoryAuditCalculation(InventoryAuditCase):
     def test_read_only_idempotent_atomic_and_access(self):
         device = self.device()
         quant = self.quant(1)
-        before = (device.read(), quant.read())
+        # Audit presentation changes by design; compare every source field,
+        # including identity/history and write metadata, exactly as before.
+        source_fields = list(
+            set(device._fields)
+            - {
+                "inventory_audit_result_ids",
+                "inventory_check_status",
+                "inventory_check_details",
+                "last_inventory_check",
+                "inventory_check_pending",
+                "inventory_check_error",
+            }
+        )
+        before = (device.read(source_fields), quant.read())
         count = self.env["pinout.inventory.audit.group"].sudo().search_count([])
         self.config._calculate()
         self.assertEqual(
@@ -242,7 +255,7 @@ class TestInventoryAuditCalculation(InventoryAuditCase):
         group = self.run_audit()
         self.run_audit()
         self.assertEqual(self.run_audit(), group)
-        self.assertEqual((device.read(), quant.read()), before)
+        self.assertEqual((device.read(source_fields), quant.read()), before)
         quant.quantity = 0
         model = type(self.env["pinout.inventory.audit.group"])
         with patch.object(

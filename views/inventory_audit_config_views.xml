@@ -16,6 +16,10 @@
         <field name="model">pinout.inventory.audit.config</field>
         <field name="arch" type="xml">
             <form string="Inventory Audit Configuration">
+                <header>
+                    <button name="action_refresh" type="object" string="Refresh" class="btn-primary"/>
+                    <button name="action_open_dashboard" type="object" string="Open Inventory Audit"/>
+                </header>
                 <sheet>
                     <group>
                         <field name="company_id" options="{'no_create': True}"/>

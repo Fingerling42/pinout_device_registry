@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="inventory_audit_group_tree" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.group.tree</field>
+        <field name="model">pinout.inventory.audit.group</field>
+        <field name="arch" type="xml">
+            <tree create="false" edit="false" delete="false" decoration-danger="status == 'exact_mismatch'" decoration-warning="status == 'group_shortage'">
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="product_id"/>
+                <field name="location_id"/>
+                <field name="status"/>
+                <field name="expected_quantity" string="Registry Count"/>
+                <field name="actual_quantity" string="Inventory Quantity"/>
+                <field name="shortage_quantity"/>
+                <field name="surplus_quantity"/>
+                <field name="exact_mismatch_count"/>
+                <field name="pending" string="Pending / Stale"/>
+                <field name="checked_at"/>
+                <field name="last_error" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+    <record id="inventory_audit_group_search" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.group.search</field>
+        <field name="model">pinout.inventory.audit.group</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="product_id"/>
+                <field name="location_id"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <filter name="discrepancies" string="Discrepancies" domain="[('status', 'in', ['exact_mismatch', 'group_shortage'])]"/>
+                <filter name="exact" string="Exact Mismatch" domain="[('status', '=', 'exact_mismatch')]"/>
+                <filter name="shortage" string="Group Shortage" domain="[('status', '=', 'group_shortage')]"/>
+                <filter name="match" string="Match" domain="[('status', '=', 'match')]"/>
+                <filter name="not_checked" string="Not Checked" domain="[('status', '=', 'not_checked')]"/>
+                <separator/>
+                <filter name="surplus" string="Unregistered Surplus" domain="[('surplus_quantity', '&gt;', 0)]"/>
+                <separator/>
+                <filter name="pending" string="Pending / Stale" domain="[('pending', '=', True)]"/>
+                <filter name="current" string="Current" domain="[('pending', '=', False)]"/>
+                <filter name="error" string="Refresh Error" domain="[('last_error', '!=', False)]"/>
+                <group string="Group By">
+                    <filter name="product" string="Product" context="{'group_by': 'product_id'}"/>
+                    <filter name="location" string="Location" context="{'group_by': 'location_id'}"/>
+                    <filter name="company" string="Company" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="inventory_audit_group_form" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.group.form</field>
+        <field name="model">pinout.inventory.audit.group</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false" delete="false">
+                <header>
+                    <button name="action_open_devices" type="object" string="Registry Devices"/>
+                    <button name="action_open_quants" type="object" string="Stock Quants"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning" invisible="not pending">Pending / stale: this is the last successful snapshot, not current confirmation.</div>
+                    <group>
+                        <field name="company_id"/>
+                        <field name="product_id" options="{'no_create': True}"/>
+                        <field name="location_id" options="{'no_create': True}"/>
+                        <field name="status"/>
+                        <field name="pending"/>
+                        <field name="checked_at"/>
+                        <field name="last_error" invisible="not last_error"/>
+                    </group>
+                    <group>
+                        <field name="expected_quantity" string="Registry Count"/>
+                        <field name="actual_quantity" string="Inventory Quantity (base UoM)"/>
+                        <field name="shortage_quantity"/>
+                        <field name="surplus_quantity"/>
+                        <field name="exact_mismatch_count"/>
+                        <field name="details"/>
+                    </group>
+                    <p>Untracked results describe the whole Product / Location / Company group. A shortage does not identify missing Device UIDs. Surplus does not make existing Devices erroneous.</p>
+                    <field name="device_result_ids" readonly="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="inventory_audit_device_tree" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.device.tree</field>
+        <field name="model">pinout.inventory.audit.device</field>
+        <field name="arch" type="xml">
+            <tree create="false" edit="false" delete="false" decoration-danger="status == 'exact_mismatch'" decoration-warning="status == 'group_shortage'">
+                <field name="device_id"/>
+                <field name="product_id"/>
+                <field name="location_id"/>
+                <field name="status"/>
+                <field name="details"/>
+                <field name="pending"/>
+                <field name="checked_at"/>
+                <field name="last_error" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+    <record id="inventory_audit_device_form" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.device.form</field>
+        <field name="model">pinout.inventory.audit.device</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <field name="device_id"/>
+                        <field name="company_id"/>
+                        <field name="product_id"/>
+                        <field name="location_id"/>
+                        <field name="final_lot_id"/>
+                        <field name="group_id"/>
+                        <field name="status"/>
+                        <field name="pending" string="Pending / Stale"/>
+                        <field name="checked_at"/>
+                        <field name="details"/>
+                        <field name="last_error"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="inventory_audit_group_action" model="ir.actions.act_window">
+        <field name="name">Inventory Audit Groups</field>
+        <field name="res_model">pinout.inventory.audit.group</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="inventory_audit_group_search"/>
+        <field name="context">{'search_default_discrepancies': 1}</field>
+    </record>
+    <record id="inventory_audit_dashboard_form" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.dashboard.form</field>
+        <field name="model">pinout.inventory.audit.config</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false" delete="false" string="Inventory Audit">
+                <header>
+                    <button name="action_refresh" type="object" string="Refresh" class="btn-primary"/>
+                    <button name="action_open_configuration" type="object" string="Configure Scope"/>
+                    <button name="action_open_groups" type="object" string="Browse Groups"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_groups" type="object" class="oe_stat_button" icon="fa-exclamation-triangle"><field name="mismatch_group_count" widget="statinfo" string="Discrepancy Groups"/></button>
+                        <button name="action_open_surplus" type="object" class="oe_stat_button" icon="fa-cubes"><field name="surplus_group_count" widget="statinfo" string="Surplus Groups"/></button>
+                        <button name="action_open_not_checked" type="object" class="oe_stat_button" icon="fa-question-circle"><field name="not_checked_device_count" widget="statinfo" string="Not Checked Devices"/></button>
+                    </div>
+                    <group>
+                        <field name="company_id"/>
+                        <field name="full_check_pending"/>
+                        <field name="full_check_started_at"/>
+                        <field name="last_full_check_at"/>
+                        <field name="last_error" invisible="not last_error"/>
+                    </group>
+                    <div class="alert alert-info"><field name="scope_message" nolabel="1"/></div>
+                    <p>Last successful results are shown below. Pending / stale results await Refresh. Surplus groups may need registration; untracked shortages do not identify missing UIDs.</p>
+                    <separator string="Exact Mismatch and Group Shortage"/>
+                    <field name="mismatch_group_ids" nolabel="1" readonly="1" context="{'tree_view_ref': 'pinout_device_registry.inventory_audit_group_tree', 'form_view_ref': 'pinout_device_registry.inventory_audit_group_form'}"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="inventory_audit_dashboard_action" model="ir.actions.server">
+        <field name="name">Inventory Audit</field>
+        <field name="model_id" ref="model_pinout_inventory_audit_config"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_open_dashboard()</field>
+    </record>
+    <record id="inventory_audit_device_refresh_action" model="ir.actions.server">
+        <field name="name">Refresh Inventory Audit</field>
+        <field name="model_id" ref="model_pinout_device"/>
+        <field name="binding_model_id" ref="model_pinout_device"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="groups_id" eval="[(4, ref('stock.group_stock_user'))]"/>
+        <field name="state">code</field>
+        <field name="code">records.action_refresh_inventory_audit()</field>
+    </record>
+</odoo>

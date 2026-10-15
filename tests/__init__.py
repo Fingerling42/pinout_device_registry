@@ -19,3 +19,5 @@ from . import test_inventory_audit_calculation
 
 from . import test_inventory_audit_events
 from . import test_inventory_audit_refresh
+
+from . import test_inventory_audit_views

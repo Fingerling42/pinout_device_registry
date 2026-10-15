@@ -299,7 +299,20 @@ class TestInventoryAuditStorage(TransactionCase):
         self.assertTrue(operator_group.search([("id", "=", group.id)]))
 
     def test_storage_does_not_modify_sources_and_rollback_is_atomic(self):
-        before = self.device.read()[0]
+        # Audit presentation changes by design; compare every source field,
+        # including identity/history and write metadata, exactly as before.
+        source_fields = list(
+            set(self.device._fields)
+            - {
+                "inventory_audit_result_ids",
+                "inventory_check_status",
+                "inventory_check_details",
+                "last_inventory_check",
+                "inventory_check_pending",
+                "inventory_check_error",
+            }
+        )
+        before = self.device.read(source_fields)[0]
         stock_models = ("stock.quant", "stock.move", "stock.lot", "mrp.production")
         counts = {model: self.env[model].search_count([]) for model in stock_models}
         group = self.group()
@@ -315,7 +328,7 @@ class TestInventoryAuditStorage(TransactionCase):
         self.assertFalse(group.pending)
         self.assertFalse(result.pending)
         self.assertEqual(result.status, "match")
-        self.assertEqual(self.device.read()[0], before)
+        self.assertEqual(self.device.read(source_fields)[0], before)
         self.assertEqual(
             counts, {model: self.env[model].search_count([]) for model in stock_models}
         )

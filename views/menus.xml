@@ -59,6 +59,10 @@
         action="pinout_product_variant_search.product_attribute_value_action"
         sequence="30"
     />
+    <menuitem id="inventory_audit_menu" name="Inventory Audit"
+        parent="pinout_device_registry_menu_root"
+        action="inventory_audit_dashboard_action" sequence="30"
+        groups="stock.group_stock_user"/>
     <menuitem id="inventory_audit_config_menu" name="Inventory Audit"
         parent="pinout_device_registry_configuration_menu"
         action="inventory_audit_config_action" sequence="40"
