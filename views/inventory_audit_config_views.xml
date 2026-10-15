@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="inventory_audit_config_tree" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.config.tree</field>
+        <field name="model">pinout.inventory.audit.config</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="company_id"/>
+                <field name="full_check_pending"/>
+                <field name="last_full_check_at"/>
+            </tree>
+        </field>
+    </record>
+    <record id="inventory_audit_config_form" model="ir.ui.view">
+        <field name="name">pinout.inventory.audit.config.form</field>
+        <field name="model">pinout.inventory.audit.config</field>
+        <field name="arch" type="xml">
+            <form string="Inventory Audit Configuration">
+                <sheet>
+                    <group>
+                        <field name="company_id" options="{'no_create': True}"/>
+                        <field name="full_check_pending"/>
+                        <field name="last_full_check_at"/>
+                    </group>
+                    <div class="alert alert-info" role="status">
+                        <field name="scope_message" nolabel="1"/>
+                    </div>
+                    <field name="scope_ids">
+                        <tree editable="bottom">
+                            <field name="company_id" column_invisible="True"/>
+                            <field name="location_id" domain="[('usage', 'in', ['internal', 'view']), ('scrap_location', '=', False), ('company_id', 'in', [False, parent.company_id])]" options="{'no_create': True}"/>
+                            <field name="include_children" string="Include Child Locations"/>
+                        </tree>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="inventory_audit_config_action" model="ir.actions.act_window">
+        <field name="name">Inventory Audit</field>
+        <field name="res_model">pinout.inventory.audit.config</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Configure inventory audit locations</p>
+            <p>No locations are selected automatically. Create a configuration
+                for your company and choose the locations to check.</p>
+        </field>
+    </record>
+</odoo>

@@ -30,6 +30,7 @@
         "views/pinout_device_views.xml",
         "views/pinout_device_batch_update_wizard_views.xml",
         "views/pinout_device_batch_create_wizard_views.xml",
+        "views/inventory_audit_config_views.xml",
         "views/menus.xml",
     ],
     "installable": True,
