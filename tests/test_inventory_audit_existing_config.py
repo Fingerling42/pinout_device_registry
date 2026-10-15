@@ -69,6 +69,68 @@ class TestInventoryAuditExistingConfig(InventoryAuditCase):
         self.assertIn("Location is missing", result.details)
         self.assertEqual(self.other_group.read(load=None), before)
 
+    def test_concurrent_check_ignores_locked_unrelated_result(self):
+        token = uuid4().hex
+        with (
+            self.registry.cursor() as setup_cr,
+            patch.object(type(self.config), "_invalidate_scope", return_value=None),
+        ):
+            setup_cr.execute("SET LOCAL lock_timeout = '5s'")
+            env = api.Environment(setup_cr, SUPERUSER_ID, {})
+            device_type = env["pinout.device.type"].create(
+                {"name": "Unrelated lock fixture", "code": f"UNRELATED-{token}"}
+            )
+            device = env["pinout.device"].create(
+                {"device_uid": f"UNRELATED-{token}", "device_type_id": device_type.id}
+            )
+            result = env["pinout.inventory.audit.device"]._for_device(
+                device, env.company
+            )
+            result._store_success(
+                result.generation,
+                {"status": "not_checked", "details": "Unrelated successful snapshot"},
+            )
+            result_id, device_id, type_id = result.id, device.id, device_type.id
+            names = [
+                "company_id",
+                "status",
+                "details",
+                "pending",
+                "generation",
+                "checked_at",
+                "write_date",
+            ]
+            before = result.read(names, load=None)
+            setup_cr.commit()
+        try:
+            with self.registry.cursor() as holder_cr:
+                holder_cr.execute(
+                    "SELECT id FROM pinout_inventory_audit_device WHERE id = %s FOR UPDATE",
+                    [result_id],
+                )
+                refresh.TestInventoryAuditRefresh.test_committed_source_change_cannot_publish_old_match(
+                    self
+                )
+            with self.registry.cursor() as check_cr:
+                env = api.Environment(check_cr, SUPERUSER_ID, {})
+                self.assertEqual(
+                    env["pinout.inventory.audit.device"]
+                    .browse(result_id)
+                    .read(names, load=None),
+                    before,
+                )
+        finally:
+            with (
+                self.registry.cursor() as cleanup_cr,
+                patch.object(type(self.config), "_invalidate_scope", return_value=None),
+            ):
+                cleanup_cr.execute("SET LOCAL lock_timeout = '5s'")
+                env = api.Environment(cleanup_cr, SUPERUSER_ID, {})
+                env["pinout.inventory.audit.device"].browse(result_id).unlink()
+                env["pinout.device"].browse(device_id).unlink()
+                env["pinout.device.type"].browse(type_id).unlink()
+                cleanup_cr.commit()
+
     def test_concurrency_fixture_coexists_with_legacy_names(self):
         # Existing records are only read. Create missing legacy-name blockers
         # in this test transaction, without committing or cleaning other data.

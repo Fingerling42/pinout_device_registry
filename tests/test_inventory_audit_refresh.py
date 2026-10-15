@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -11,6 +12,8 @@ from odoo.tests.common import new_test_user
 from psycopg2 import OperationalError
 
 from .test_inventory_audit_calculation import InventoryAuditCase
+
+_logger = logging.getLogger(__name__)
 
 
 @tagged("post_install", "-at_install")
@@ -431,6 +434,7 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         # with or delete sources owned by an earlier run.
         namespace = uuid4().hex
         fixture_name = f"Concurrency fixture {namespace}"
+        _logger.info("Audit concurrency %s: creating owned sources", namespace)
         cleanup_ids = None
         try:
             # These sources have no committed audit configuration. Their global
@@ -508,11 +512,13 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                 )
                 cleanup_ids = (device.id, product.product_tmpl_id.id, device_type.id)
                 setup_cr.commit()
+            _logger.info("Audit concurrency %s: testing source conflict", namespace)
             original = type(self.config)._calculate
 
             def change_after_read(config, *args):
                 snapshot = original(config, *args)
                 with self.registry.cursor() as source_cr:
+                    source_cr.execute("SET LOCAL lock_timeout = '5s'")
                     env = api.Environment(source_cr, SUPERUSER_ID, {})
                     env["stock.quant"].browse(quant_id).quantity = 0
                     # Same dirty marker used by the source hooks, in the source
@@ -535,6 +541,7 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                 ),
             ):
                 with self.registry.cursor() as worker_cr:
+                    worker_cr.execute("SET LOCAL lock_timeout = '5s'")
                     env = api.Environment(worker_cr, SUPERUSER_ID, {})
                     worker = env["pinout.inventory.audit.config"].new(
                         {"company_id": company_id}
@@ -545,9 +552,14 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                         mute_logger("odoo.sql_db"),
                     ):
                         with self.assertRaises(SerializationFailure):
-                            worker._recalculate()
+                            worker._recalculate(
+                                env["pinout.inventory.audit.group"].browse(group_id),
+                                env["pinout.device"],
+                            )
                     worker_cr.rollback()
+                _logger.info("Audit concurrency %s: retrying owned group", namespace)
                 with self.registry.cursor() as retry_cr:
+                    retry_cr.execute("SET LOCAL lock_timeout = '5s'")
                     env = api.Environment(retry_cr, SUPERUSER_ID, {})
                     group = env["pinout.inventory.audit.group"].browse(group_id)
                     self.assertTrue(group.pending)
@@ -555,18 +567,23 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                     config = env["pinout.inventory.audit.config"].new(
                         {"company_id": company_id}
                     )
-                    config._recalculate()
+                    # Limit the retry to this fixture's group. A global pass
+                    # also processes unrelated unlocated Devices and can wait
+                    # on results held by the main test transaction.
+                    config._recalculate(group, env["pinout.device"])
                     self.assertFalse(group.pending)
                     self.assertEqual(group.status, "group_shortage")
                     retry_cr.commit()
         finally:
             if cleanup_ids:
+                _logger.info("Audit concurrency %s: cleaning owned sources", namespace)
                 with (
                     self.registry.cursor() as cleanup_cr,
                     patch.object(
                         type(self.config), "_invalidate_scope", return_value=None
                     ),
                 ):
+                    cleanup_cr.execute("SET LOCAL lock_timeout = '5s'")
                     env = api.Environment(cleanup_cr, SUPERUSER_ID, {})
                     device_id, template_id, type_id = cleanup_ids
                     env["pinout.inventory.audit.group"].browse(group_id).unlink()
@@ -578,3 +595,4 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                     env["res.company"].browse(company_id).unlink()
                     env["res.partner"].browse(partner_id).unlink()
                     cleanup_cr.commit()
+                _logger.info("Audit concurrency %s: cleanup complete", namespace)
