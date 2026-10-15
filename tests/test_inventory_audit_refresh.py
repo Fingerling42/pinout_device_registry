@@ -2,6 +2,7 @@ from datetime import timedelta
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 from odoo import fields
 from odoo.exceptions import AccessError, UserError
@@ -426,6 +427,10 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
         from odoo.tools import mute_logger
         from psycopg2.errors import SerializationFailure
 
+        # Committed fixtures can survive a killed test process. Never collide
+        # with or delete sources owned by an earlier run.
+        namespace = uuid4().hex
+        fixture_name = f"Concurrency fixture {namespace}"
         cleanup_ids = None
         try:
             # These sources have no committed audit configuration. Their global
@@ -438,12 +443,12 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
             ):
                 setup_cr.execute("SET LOCAL lock_timeout = '5s'")
                 env = api.Environment(setup_cr, SUPERUSER_ID, {})
-                partner = env["res.partner"].create({"name": "Concurrency fixture"})
+                partner = env["res.partner"].create({"name": fixture_name})
                 company = models.Model.create(
                     env["res.company"],
                     [
                         {
-                            "name": "Concurrency fixture",
+                            "name": fixture_name,
                             "partner_id": partner.id,
                             "currency_id": env.company.currency_id.id,
                         }
@@ -452,18 +457,18 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                 company_id, partner_id = company.id, partner.id
                 location = env["stock.location"].create(
                     {
-                        "name": "Concurrency",
+                        "name": fixture_name,
                         "usage": "internal",
                         "company_id": company.id,
                     }
                 )
                 product = env["product.product"].create(
-                    {"name": "Concurrency", "type": "product"}
+                    {"name": fixture_name, "type": "product"}
                 )
                 device_type = env["pinout.device.type"].create(
                     {
-                        "name": "Concurrency",
-                        "code": "AUDIT-CONCURRENCY",
+                        "name": fixture_name,
+                        "code": f"AUDIT-CONCURRENCY-{namespace}",
                         "allowed_product_template_ids": [
                             fields.Command.set(product.product_tmpl_id.ids)
                         ],
@@ -471,7 +476,7 @@ class TestInventoryAuditRefresh(InventoryAuditCase):
                 )
                 device = env["pinout.device"].create(
                     {
-                        "device_uid": "AUDIT-CONCURRENCY-1",
+                        "device_uid": f"AUDIT-CONCURRENCY-1-{namespace}",
                         "device_type_id": device_type.id,
                         "current_product_id": product.id,
                         "location_id": location.id,

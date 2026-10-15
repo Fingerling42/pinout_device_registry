@@ -1,4 +1,7 @@
-from odoo import fields
+from unittest.mock import patch
+from uuid import uuid4
+
+from odoo import SUPERUSER_ID, api, fields
 from odoo.tests import tagged
 
 from . import test_inventory_audit_background as background
@@ -65,3 +68,57 @@ class TestInventoryAuditExistingConfig(InventoryAuditCase):
         self.assertFalse(result.pending)
         self.assertIn("Location is missing", result.details)
         self.assertEqual(self.other_group.read(load=None), before)
+
+    def test_concurrency_fixture_coexists_with_legacy_names(self):
+        # Existing records are only read. Create missing legacy-name blockers
+        # in this test transaction, without committing or cleaning other data.
+        Company = self.env["res.company"].with_context(active_test=False)
+        company = Company.search([("name", "=", "Concurrency fixture")])
+        if not company:
+            company = Company.create({"name": "Concurrency fixture"})
+        Type = self.env["pinout.device.type"].with_context(active_test=False)
+        device_type = Type.search([("code", "=", "AUDIT-CONCURRENCY")])
+        if not device_type:
+            device_type = Type.create(
+                {"name": "Legacy concurrency type", "code": "AUDIT-CONCURRENCY"}
+            )
+        Device = self.env["pinout.device"].with_context(active_test=False)
+        device = Device.search([("device_uid", "=", "AUDIT-CONCURRENCY-1")])
+        if not device:
+            device = self.device("AUDIT-CONCURRENCY-1")
+        sources = [
+            (company, ["name", "partner_id", "currency_id", "write_date"]),
+            (
+                device_type,
+                ["code", "active", "allowed_product_template_ids", "write_date"],
+            ),
+            (device, ["device_uid", "device_type_id", "location_id", "write_date"]),
+        ]
+        before = [record.read(names, load=None) for record, names in sources]
+        token = uuid4()
+        with patch.object(refresh, "uuid4", return_value=token):
+            refresh.TestInventoryAuditRefresh.test_committed_source_change_cannot_publish_old_match(
+                self
+            )
+        for (record, names), snapshot in zip(sources, before, strict=True):
+            record.invalidate_recordset(names)
+            self.assertEqual(record.read(names, load=None), snapshot)
+
+        # A new cursor sees committed leftovers that the main test snapshot
+        # cannot see. Successful cleanup must remove every newly owned source.
+        with self.registry.cursor() as check_cr:
+            env = api.Environment(check_cr, SUPERUSER_ID, {})
+            for model, field, value in (
+                ("res.company", "name", f"Concurrency fixture {token.hex}"),
+                ("res.partner", "name", f"Concurrency fixture {token.hex}"),
+                ("stock.location", "name", f"Concurrency fixture {token.hex}"),
+                ("product.template", "name", f"Concurrency fixture {token.hex}"),
+                ("pinout.device.type", "code", f"AUDIT-CONCURRENCY-{token.hex}"),
+                ("pinout.device", "device_uid", f"AUDIT-CONCURRENCY-1-{token.hex}"),
+            ):
+                self.assertFalse(
+                    env[model]
+                    .with_context(active_test=False)
+                    .search_count([(field, "=", value)]),
+                    model,
+                )
