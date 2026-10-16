@@ -24,3 +24,4 @@ from . import test_inventory_audit_views
 from . import test_inventory_audit_batch
 from . import test_inventory_audit_background
 from . import test_inventory_audit_existing_config
+from . import test_inventory_audit_virtual_locations
