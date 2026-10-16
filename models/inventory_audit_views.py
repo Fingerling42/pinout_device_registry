@@ -1,5 +1,4 @@
 from odoo import _, api, fields, models
-from odoo.osv import expression
 
 
 class InventoryAuditConfig(models.Model):
@@ -270,17 +269,18 @@ class PinoutDevice(models.Model):
 
     def _inventory_check_domain(self, field, operator, value, default):
         Result = self.env["pinout.inventory.audit.device"]
-        results = Result.search([])
-        matching = Result.search([(field, operator, value)])
-        domain = [("id", "in", matching.device_id.ids)]
         # Include absent/inaccessible results exactly when their displayed default
         # satisfies the filter, using Odoo's own domain evaluator for operators.
         default_matches = bool(
             Result.new({field: default}).filtered_domain([(field, operator, value)])
         )
         if default_matches:
-            domain = expression.OR([domain, [("id", "not in", results.device_id.ids)]])
-        return domain
+            # Every Device except a visible nonmatching snapshot displays a
+            # matching value (including missing and inaccessible snapshots).
+            nonmatching = Result.search(["!", (field, operator, value)])
+            return [("id", "not in", nonmatching.device_id.ids)]
+        matching = Result.search([(field, operator, value)])
+        return [("id", "in", matching.device_id.ids)]
 
     def _search_inventory_check_status(self, operator, value):
         return self._inventory_check_domain("status", operator, value, "not_checked")

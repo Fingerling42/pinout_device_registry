@@ -18,28 +18,37 @@ class InventoryAuditAccess(models.AbstractModel):
         "pinout.device": "source_device_ids",
     }
 
-    def _source_domains(self, include_snapshot=True):
+    def _source_domains(self, include_snapshot=True, source_cache=None):
         self.ensure_one()
+
+        def search_sources(model_name, domain):
+            model = self.env[model_name].sudo().with_context(active_test=False)
+            if source_cache is None:
+                return model.search(domain)
+            key = (model_name, repr(domain))
+            if key not in source_cache:
+                source_cache[key] = model.search(domain)
+            return source_cache[key]
+
         product_domain = [
             ("company_id", "=", self.company_id.id),
             ("product_id", "=", self.product_id.id),
         ]
         device_domain = [("current_product_id", "=", self.product_id.id)]
-        if self._name == "pinout.inventory.audit.device":
+        devices = search_sources("pinout.device", device_domain)
+        if (
+            self._name == "pinout.inventory.audit.device"
+            and self.device_id not in devices
+        ):
             device_domain = expression.OR(
                 [device_domain, [("id", "=", self.device_id.id)]]
             )
-        devices = (
-            self.env["pinout.device"]
-            .sudo()
-            .with_context(active_test=False)
-            .search(device_domain)
-        )
+            devices |= self.device_id
         lots = devices.final_lot_id
         if self._name == "pinout.inventory.audit.device":
             lots |= self.final_lot_id
         quant_domain = expression.OR([product_domain, [("lot_id", "in", lots.ids)]])
-        quants = self.env["stock.quant"].sudo().search(quant_domain)
+        quants = search_sources("stock.quant", quant_domain)
         sources = {
             "product.product": [
                 (
@@ -64,7 +73,7 @@ class InventoryAuditAccess(models.AbstractModel):
                 )
         return sources
 
-    def _visible_ids(self):
+    def _visible_ids(self, candidate_ids):
         """Check current sources and the sources of the last successful snapshot.
 
         Check the entire product in the company, including other locations:
@@ -72,34 +81,65 @@ class InventoryAuditAccess(models.AbstractModel):
         sudo only detects missing access; it never returns source data.
         Evaluate per request, outside ir.rule's cache.
         """
-        candidates = self.sudo().search([("company_id", "in", self.env.companies.ids)])
-        visible = []
-        source_access = {}
+        candidates = (
+            self.sudo()
+            .browse(candidate_ids)
+            .filtered(lambda record: record.company_id in self.env.companies)
+        )
+        if not candidates:
+            return []
+        source_cache = {}
+        sources_by_record = {}
+        all_sources = {name: set() for name in self._source_fields}
         for record in candidates:
-            for model_name, domain in record._source_domains().items():
-                model = self.env[model_name].with_context(active_test=False)
+            sources = {}
+            for model_name, domain in record._source_domains(
+                include_snapshot=False, source_cache=source_cache
+            ).items():
                 key = (model_name, repr(domain))
-                if key not in source_access:
-                    source_access[key] = model.check_access_rights(
-                        "read", raise_exception=False
-                    ) and set(model.search(domain).ids) == set(
-                        model.sudo().search(domain).ids
+                if key not in source_cache:
+                    source_cache[key] = (
+                        self.env[model_name]
+                        .sudo()
+                        .with_context(active_test=False)
+                        .search(domain)
                     )
-                if not source_access[key]:
-                    break
-            else:
-                visible.append(record.id)
-        return visible
+                source_ids = set(source_cache[key].ids)
+                source_ids.update(record[self._source_fields[model_name]].ids)
+                sources[model_name] = source_ids
+                all_sources[model_name].update(source_ids)
+            sources_by_record[record.id] = sources
+        hidden_sources = {}
+        for model_name, source_ids in all_sources.items():
+            model = self.env[model_name].with_context(active_test=False)
+            if not model.check_access_rights("read", raise_exception=False):
+                return []
+            hidden_sources[model_name] = source_ids - set(
+                model.search([("id", "in", list(source_ids))]).ids
+            )
+        return [
+            record_id
+            for record_id, sources in sources_by_record.items()
+            if all(
+                not source_ids.intersection(hidden_sources[model_name])
+                for model_name, source_ids in sources.items()
+            )
+        ]
 
     def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
         if not self.env.su:
-            domain = expression.AND([domain, [("id", "in", self._visible_ids())]])
+            # Apply the requested domain and audit record rules before expensive
+            # source checks, but paginate only after visibility is established.
+            candidates = super()._search(domain, access_rights_uid=access_rights_uid)
+            domain = expression.AND(
+                [domain, [("id", "in", self._visible_ids(list(candidates)))]]
+            )
         return super()._search(domain, offset, limit, order, access_rights_uid)
 
     def check_access_rule(self, operation):
         super().check_access_rule(operation)
         if operation == "read" and not self.env.su:
-            if set(self.ids) - set(self._visible_ids()):
+            if set(self.ids) - set(self._visible_ids(self.ids)):
                 raise AccessError(
                     _("You cannot read the sources of this inventory audit.")
                 )

@@ -103,3 +103,95 @@ class TestInventoryAuditBatch(InventoryAuditCase):
             refresh_seconds,
             read_seconds,
         )
+        self.measure_filters(devices, reader, "500 devices/2 groups")
+
+    def test_mixed_forms_filter_batch(self):
+        reader = new_test_user(
+            self.env,
+            login="audit_mixed_batch_reader",
+            groups="stock.group_stock_user",
+            context={"no_reset_password": True},
+        )
+        devices = self.env["pinout.device"].create(
+            [
+                {
+                    "device_uid": "AUDIT-MIXED-%s-%s-%s" % (product.id, location.id, i),
+                    "device_type_id": self.device_type.id,
+                    "current_product_id": product.id,
+                    "location_id": location.id,
+                }
+                for product in self.products
+                for location in self.locations[:2]
+                for i in range(20)
+            ]
+        )
+        for device in devices.filtered(
+            lambda d: d.current_product_id.tracking == "serial"
+        ):
+            lot = self.env["stock.lot"].create(
+                {
+                    "name": device.device_uid,
+                    "product_id": device.current_product_id.id,
+                    "company_id": self.env.company.id,
+                    "pinout_device_id": device.id,
+                }
+            )
+            device.final_lot_id = lot
+            if device.location_id == self.locations[0]:
+                self.quant(1, device.current_product_id, device.location_id, lot)
+        self.quant(20)
+        self.quant(10, location=self.locations[1])
+        self.config.action_refresh()
+        self.assertEqual(
+            set(devices.mapped("inventory_check_status")),
+            {
+                "match",
+                "group_shortage",
+                "exact_mismatch",
+                "not_checked",
+            },
+        )
+        # Preserve a successful snapshot while marking one group for recheck.
+        self.quant(1)
+        self.measure_filters(devices, reader, "120 devices/6 groups/3 tracking modes")
+
+    def measure_filters(self, devices, reader, label):
+        Device = self.env["pinout.device"].with_user(reader)
+        rows = devices.with_user(reader).read(
+            ["inventory_check_status", "inventory_check_pending"]
+        )
+        for field, value in (
+            ("inventory_check_status", "match"),
+            ("inventory_check_status", "exact_mismatch"),
+            ("inventory_check_status", "group_shortage"),
+            ("inventory_check_status", "not_checked"),
+            ("inventory_check_pending", True),
+            ("inventory_check_pending", False),
+        ):
+            self.env.flush_all()
+            self.env.invalidate_all()
+            queries = self.cr.sql_log_count
+            started = perf_counter()
+            with patch.object(
+                type(self.config),
+                "_calculate",
+                side_effect=AssertionError("filter calculates"),
+            ):
+                found = Device.search([("id", "in", devices.ids), (field, "=", value)])
+            elapsed = perf_counter() - started
+            queries = self.cr.sql_log_count - queries
+            self.assertEqual(
+                set(found.ids),
+                {row["id"] for row in rows if row[field] == value},
+            )
+            _logger.info(
+                "Audit filter: %s; %s=%s; %.3fs; %d queries",
+                label,
+                field,
+                value,
+                elapsed,
+                queries,
+            )
+            # A query per Device is already excessive on these shared sources;
+            # keep the check independent of machine-dependent elapsed time.
+            self.assertLess(queries, len(devices))
