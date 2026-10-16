@@ -128,6 +128,12 @@ and separate freshness: No result, Recheck required, or No marked changes.
 No marked changes does not guarantee current stock. Inventory and Registry
 changes mark affected results pending in the same transaction, without
 recalculating them.
+
+Device list audit filters use the same accessible saved results as the displayed
+fields; filtering does not run a check. A missing result or an inaccessible
+source is shown as Not Checked / No result. Check scope and source access before
+requesting a new check; this state does not confirm a stock discrepancy.
+
 Checks run only when requested: Refresh on a Device checks its current and
 previous groups immediately; Refresh on the dashboard checks the company's
 full scope, including stock without registered Devices. Scope changes require
