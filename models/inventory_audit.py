@@ -113,6 +113,27 @@ class InventoryAuditResult(models.AbstractModel):
     company_id = fields.Many2one(
         "res.company", required=True, index=True, ondelete="cascade"
     )
+    freshness = fields.Selection(
+        [
+            ("no_result", "No result"),
+            ("recheck", "Recheck required"),
+            ("unmarked", "No marked changes"),
+        ],
+        compute="_compute_freshness",
+        string="Result freshness",
+    )
+
+    @api.depends("checked_at", "pending")
+    def _compute_freshness(self):
+        for result in self:
+            result.freshness = (
+                "no_result"
+                if not result.checked_at
+                else "recheck"
+                if result.pending
+                else "unmarked"
+            )
+
     checked_at = fields.Datetime(readonly=True)
     pending = fields.Boolean(default=True, readonly=True, index=True)
     generation = fields.Integer(default=1, readonly=True)

@@ -315,6 +315,7 @@ class TestInventoryAuditStorage(InventoryAuditCompanyCase):
                 "last_inventory_check",
                 "inventory_check_pending",
                 "inventory_check_error",
+                "inventory_check_freshness",
             }
         )
         before = self.device.read(source_fields)[0]

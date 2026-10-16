@@ -265,31 +265,71 @@ class InventoryAuditConfig(models.Model):
         rounding = device.current_product_id.uom_id.rounding
         if float_compare(amounts.get(key, 0), 1, precision_rounding=rounding):
             problems.append(_("Active serial quantity at the exact Location is not 1."))
-        elsewhere = []
-        for quant_key, qty in amounts.items():
-            if quant_key != key and float_compare(qty, 0, precision_rounding=rounding):
+        actual = []
+        for quant_key, qty in sorted(amounts.items()):
+            comparison = float_compare(qty, 0, precision_rounding=rounding)
+            if not comparison:
+                continue
+            company_id, product_id, location_id = quant_key
+            location = self.env["stock.location"].browse(location_id)
+            virtual_balance = (
+                comparison < 0
+                and company_id == key[0]
+                and product_id == key[1]
+                and location.usage
+                in ("production", "inventory", "supplier", "customer")
+                and not location.scrap_location
+            )
+            if quant_key != key and not virtual_balance:
                 problems.append(
                     _(
                         "Active serial has stock outside the expected Product/Location/company."
                     )
                 )
-                if qty > 0:
-                    elsewhere.append(
-                        self.env["stock.location"].browse(quant_key[2]).display_name
-                    )
-        if elsewhere:
-            problems.append(
+            actual.append(
                 _(
-                    "Positive serial stock found at: %s",
-                    ", ".join(sorted(set(elsewhere))),
+                    "Actual: Product %(product)s; serial %(serial)s; Location %(location)s (%(usage)s); company %(company)s; quantity %(quantity)s.%(context)s",
+                    product=self.env["product.product"].browse(product_id).display_name,
+                    serial=lot.name,
+                    location=location.display_name,
+                    usage=location.usage,
+                    company=self.env["res.company"].browse(company_id).display_name
+                    or _("No company"),
+                    quantity=qty,
+                    context=_(
+                        " Virtual operation balance; does not indicate a second physical unit."
+                    )
+                    if virtual_balance
+                    else "",
                 )
             )
+        expected = _(
+            "Expected: Product %(product)s; serial / UID %(serial)s; Location %(location)s; company %(company)s; quantity 1. Actual quantity at this exact key: %(quantity)s.",
+            product=device.current_product_id.display_name,
+            serial=device.device_uid,
+            location=device.location_id.display_name,
+            company=self.company_id.display_name,
+            quantity=amounts.get(key, 0),
+        )
+        identity = _(
+            "Final Lot: %(serial)s; Product %(product)s; company %(company)s.",
+            serial=lot.name,
+            product=lot.product_id.display_name,
+            company=lot.company_id.display_name,
+        )
         return {
             "status": "exact_mismatch" if problems else "match",
-            "details": "\n".join(problems)
-            if problems
-            else _(
-                "Active serial matches Product, company, quantity 1 and exact Location."
+            "details": "\n".join(
+                (
+                    problems
+                    or [
+                        _(
+                            "Active serial matches Product, company, quantity 1 and exact Location."
+                        )
+                    ]
+                )
+                + [expected, identity]
+                + (actual or [_("No nonzero serial stock found (base UoM rounding).")])
             ),
         }
 

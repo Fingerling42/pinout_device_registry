@@ -224,7 +224,7 @@ class InventoryAuditConfig(models.Model):
                 )
             )
             trusted._process_refresh(max(count, 1))
-        return True
+        return {"type": "ir.actions.client", "tag": "soft_reload"}
 
 
 class PinoutDevice(models.Model):
@@ -287,4 +287,4 @@ class PinoutDevice(models.Model):
                     "Configure Inventory Audit for the device company and select that company first."
                 )
             )
-        return True
+        return {"type": "ir.actions.client", "tag": "soft_reload"}

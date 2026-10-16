@@ -50,6 +50,7 @@ class TestInventoryAuditViews(InventoryAuditCase):
         device = self.device()
         self.assertEqual(device.inventory_check_status, "not_checked")
         self.assertTrue(device.inventory_check_pending)
+        self.assertEqual(device.inventory_check_freshness, "no_result")
         self.assertIn(
             device,
             self.env["pinout.device"].search(
@@ -78,6 +79,7 @@ class TestInventoryAuditViews(InventoryAuditCase):
         self.assertEqual(reader.inventory_check_status, "not_checked")
         self.assertFalse(reader.last_inventory_check)
         self.assertFalse(reader.inventory_check_error)
+        self.assertEqual(reader.inventory_check_freshness, "no_result")
         self.assertIn(
             device.id,
             self.env["pinout.device"]
@@ -118,6 +120,8 @@ class TestInventoryAuditViews(InventoryAuditCase):
         self.assertTrue(device.inventory_check_pending)
         self.assertEqual(device.last_inventory_check, checked_at)
         self.assertEqual(device.inventory_check_error, "Retry <audit>")
+        self.assertEqual(device.inventory_check_freshness, "recheck")
+        self.assertEqual(result.freshness, "recheck")
         with patch.object(
             type(self.config),
             "_calculate",
@@ -125,6 +129,7 @@ class TestInventoryAuditViews(InventoryAuditCase):
         ):
             self.config.read(
                 [
+                    "full_check_state",
                     "mismatch_group_count",
                     "surplus_group_count",
                     "not_checked_device_count",
@@ -134,6 +139,7 @@ class TestInventoryAuditViews(InventoryAuditCase):
         device.action_refresh_inventory_audit()
         self.assertFalse(device.inventory_check_pending)
         self.assertFalse(device.inventory_check_error)
+        self.assertEqual(device.inventory_check_freshness, "unmarked")
 
     def test_allowed_companies_do_not_share_cached_device_status(self):
         other = self.env["res.company"].create({"name": "Audit UI other company"})
@@ -221,6 +227,78 @@ class TestInventoryAuditViews(InventoryAuditCase):
             expected_not_checked,
         )
 
+    def test_full_check_state_priority_and_menu_company(self):
+        self.config.scope_ids.unlink()
+        self.assertEqual(self.config.full_check_state, "no_scope")
+        self.config.scope_ids = [
+            fields.Command.create({"location_id": self.locations[0].id})
+        ]
+        self.config.write({"full_check_pending": False})
+        self.assertEqual(self.config.full_check_state, "never")
+        self.config.full_check_pending = True
+        self.assertEqual(self.config.full_check_state, "required")
+        self.config.full_check_started_at = fields.Datetime.now()
+        self.assertEqual(self.config.full_check_state, "incomplete")
+        self.config.write({"full_check_started_at": False, "last_error": "Retry"})
+        self.assertEqual(self.config.full_check_state, "incomplete")
+        self.config.action_refresh()
+        self.assertEqual(self.config.full_check_state, "complete")
+        checked = self.config.last_full_check_at
+        device = self.device("STATE-DEVICE")
+        self.assertEqual(self.config.full_check_state, "complete")
+        self.assertEqual(self.config.last_full_check_at, checked)
+        self.assertEqual(device.inventory_check_freshness, "no_result")
+        action = self.env.ref(
+            "pinout_device_registry.inventory_audit_dashboard_action"
+        ).run()
+        self.assertEqual(action["res_id"], self.config.id)
+        other = self.env["res.company"].create({"name": "No audit config"})
+        action = (
+            self.env["pinout.inventory.audit.config"]
+            .with_company(other)
+            .action_open_dashboard()
+        )
+        self.assertFalse(action["res_id"])
+        self.assertEqual(action["name"], "Audit Scope")
+
+    def test_serial_diagnostics_navigation_and_hidden_virtual_source(self):
+        device, lot = self.serial("DETAILS-<serial>")
+        self.quant(1, self.products[1], lot=lot)
+        virtual = self.env["stock.location"].create(
+            {"name": "Hidden virtual", "usage": "production"}
+        )
+        quant = self.quant(-1, self.products[1], virtual, lot)
+        self.config.action_refresh()
+        result = self.result(device)
+        self.assertEqual(result.status, "match")
+        self.assertIn("Expected:", result.details)
+        self.assertIn("quantity -1", result.details)
+        self.assertIn(device.device_uid, result.details)
+        self.assertIn(virtual.display_name, result.details)
+        action = result.action_open_serial_quants()
+        self.assertIn(quant, self.env["stock.quant"].search(action["domain"]))
+        user = new_test_user(
+            self.env,
+            login="audit_hidden_virtual",
+            groups="stock.group_stock_user",
+            context={"no_reset_password": True},
+        )
+        self.env["ir.rule"].create(
+            {
+                "name": "Hide virtual source",
+                "model_id": self.env["ir.model"]._get_id("stock.quant"),
+                "domain_force": repr([("id", "!=", quant.id)]),
+                "groups": [
+                    fields.Command.link(self.env.ref("stock.group_stock_user").id)
+                ],
+            }
+        )
+        reader = device.with_user(user)
+        self.assertEqual(reader.inventory_check_freshness, "no_result")
+        self.assertNotIn("Hidden virtual", reader.inventory_check_details)
+        with self.assertRaises(AccessError):
+            result.with_user(user).action_open_serial_quants()
+
 
 @tagged("post_install", "-at_install")
 class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
@@ -296,11 +374,10 @@ class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
                     .find(node => node.textContent.includes('Inventory Audit')), 'audit tab');
                 tab.click();
                 await wait(() => document.querySelector('[name="inventory_check_status"]')?.textContent.includes('Group Shortage'), 'last successful shortage');
-                const pending = await wait(() => document.querySelector('[name="inventory_check_pending"] input'), 'pending checkbox');
-                if (!pending.checked) throw new Error('Stale status is not marked pending');
+                await wait(() => document.querySelector('[name="inventory_check_freshness"]')?.textContent.includes('Recheck required'), 'recheck state');
                 document.querySelector('button[name="action_refresh_inventory_audit"]').click();
                 await wait(() => document.querySelector('[name="inventory_check_status"]')?.textContent.includes('Match'), 'refreshed Match');
-                if (document.querySelector('[name="inventory_check_pending"] input').checked) throw new Error('Refresh did not clear pending');
+                await wait(() => document.querySelector('[name="inventory_check_freshness"]')?.textContent.includes('No marked changes'), 'cleared recheck state');
                 if (!document.querySelector('[name="inventory_check_details"]').textContent.includes('does not prove')) throw new Error('Missing untracked semantics');
                 console.log('test successful');
             })().catch(error => console.error(error));
@@ -308,9 +385,7 @@ class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
             login=self.browser_user.login,
             timeout=120,
         )
-        dashboard = self.env.ref(
-            "pinout_device_registry.inventory_audit_dashboard_action"
-        )
+        dashboard = self.env.ref("pinout_device_registry.inventory_audit_config_action")
         self.browser_js(
             f"/web#action={dashboard.id}",
             r"""
@@ -324,8 +399,8 @@ class TestInventoryAuditUI(InventoryAuditCase, HttpCase):
                     }
                     throw new Error('Timed out: ' + label);
                 };
-                const configure = await wait(() => document.querySelector('button[name="action_open_configuration"]'), 'configure scope');
-                configure.click();
+                const company = await wait(() => document.querySelector('.o_data_row .o_data_cell'), 'scope company');
+                company.click();
                 await wait(() => document.querySelector('[name="scope_ids"]')?.textContent.includes('Calculation A'), 'configured location A');
                 if (!document.querySelector('[name="scope_ids"]').textContent.includes('Calculation B')) throw new Error('Missing second scope');
                 await wait(() => document.querySelector('[name="include_children"] input')?.checked, 'include children');

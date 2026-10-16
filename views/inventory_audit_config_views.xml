@@ -6,7 +6,7 @@
         <field name="arch" type="xml">
             <tree>
                 <field name="company_id"/>
-                <field name="full_check_pending"/>
+                <field name="full_check_state"/>
                 <field name="last_full_check_at"/>
             </tree>
         </field>
@@ -15,16 +15,17 @@
         <field name="name">pinout.inventory.audit.config.form</field>
         <field name="model">pinout.inventory.audit.config</field>
         <field name="arch" type="xml">
-            <form string="Inventory Audit Configuration">
+            <form string="Audit Scope">
                 <header>
                     <button name="action_refresh" type="object" string="Refresh" class="btn-primary"/>
-                    <button name="action_open_dashboard" type="object" string="Open Inventory Audit"/>
                 </header>
                 <sheet>
                     <group>
                         <field name="company_id" options="{'no_create': True}"/>
-                        <field name="full_check_pending"/>
-                        <field name="last_full_check_at"/>
+                        <field name="full_check_state"/>
+                        <field name="last_full_check_at" string="Last successful full check"/>
+                        <field name="last_error" invisible="not last_error"/>
+                        <div invisible="not last_error">The check did not complete. Retry Refresh manually.</div>
                     </group>
                     <div class="alert alert-info" role="status">
                         <field name="scope_message" nolabel="1"/>
@@ -41,7 +42,7 @@
         </field>
     </record>
     <record id="inventory_audit_config_action" model="ir.actions.act_window">
-        <field name="name">Inventory Audit</field>
+        <field name="name">Audit Scope</field>
         <field name="res_model">pinout.inventory.audit.config</field>
         <field name="view_mode">tree,form</field>
         <field name="help" type="html">

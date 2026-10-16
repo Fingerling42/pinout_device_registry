@@ -23,7 +23,8 @@
                 <field name="create_date" optional="hide"/>
                 <field name="write_date" optional="hide"/>
                 <field name="inventory_check_status" optional="hide" groups="stock.group_stock_user" decoration-muted="inventory_check_pending" decoration-danger="inventory_check_status == 'exact_mismatch'" decoration-warning="inventory_check_status == 'group_shortage'"/>
-                <field name="inventory_check_pending" optional="show" groups="stock.group_stock_user"/>
+                <field name="inventory_check_pending" column_invisible="True" groups="stock.group_stock_user"/>
+                <field name="inventory_check_freshness" optional="show" groups="stock.group_stock_user"/>
                 <field name="last_inventory_check" optional="hide" groups="stock.group_stock_user"/>
             </tree>
         </field>
@@ -163,10 +164,10 @@
                         </page>
                         <page string="Inventory Audit" name="inventory_audit" groups="stock.group_stock_user">
                             <button name="action_refresh_inventory_audit" string="Refresh Inventory Audit" type="object" class="btn-primary"/>
-                            <div class="alert alert-warning" role="status" invisible="not inventory_check_pending">Pending / stale: the last successful status is not current confirmation.</div>
+                            <div class="alert alert-warning" role="status" invisible="inventory_check_freshness != 'recheck'">Recheck required: the previous result and date are preserved. Use Refresh Inventory Audit to check again.</div>
                             <group>
                                 <field name="inventory_check_status"/>
-                                <field name="inventory_check_pending"/>
+                                <field name="inventory_check_freshness"/>
                                 <field name="last_inventory_check"/>
                                 <field name="inventory_check_details"/>
                                 <field name="inventory_check_error" invisible="not inventory_check_error"/>

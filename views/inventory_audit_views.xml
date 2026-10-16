@@ -14,7 +14,7 @@
                 <field name="shortage_quantity"/>
                 <field name="surplus_quantity"/>
                 <field name="exact_mismatch_count"/>
-                <field name="pending" string="Pending / Stale"/>
+                <field name="freshness"/>
                 <field name="checked_at"/>
                 <field name="last_error" optional="hide"/>
             </tree>
@@ -36,8 +36,9 @@
                 <separator/>
                 <filter name="surplus" string="Unregistered Surplus" domain="[('surplus_quantity', '&gt;', 0)]"/>
                 <separator/>
-                <filter name="pending" string="Pending / Stale" domain="[('pending', '=', True)]"/>
-                <filter name="current" string="Current" domain="[('pending', '=', False)]"/>
+                <filter name="pending" string="Recheck required" domain="[('pending', '=', True), ('checked_at', '!=', False)]"/>
+                <filter name="current" string="No marked changes" domain="[('pending', '=', False), ('checked_at', '!=', False)]"/>
+                <filter name="no_result" string="No result" domain="[('checked_at', '=', False)]"/>
                 <filter name="error" string="Refresh Error" domain="[('last_error', '!=', False)]"/>
                 <group string="Group By">
                     <filter name="product" string="Product" context="{'group_by': 'product_id'}"/>
@@ -57,15 +58,16 @@
                     <button name="action_open_quants" type="object" string="Stock Quants"/>
                 </header>
                 <sheet>
-                    <div class="alert alert-warning" role="status" invisible="not pending">Pending / stale: this is the last successful snapshot, not current confirmation.</div>
+                    <div class="alert alert-warning" role="status" invisible="freshness != 'recheck'">Recheck required: the previous result and date are preserved. Use Refresh to check again.</div>
                     <group>
                         <field name="company_id"/>
                         <field name="product_id" options="{'no_create': True}"/>
                         <field name="location_id" options="{'no_create': True}"/>
                         <field name="status"/>
-                        <field name="pending"/>
+                        <field name="freshness"/>
                         <field name="checked_at"/>
                         <field name="last_error" invisible="not last_error"/>
+                        <div invisible="not last_error">The check did not complete. Retry Refresh manually.</div>
                     </group>
                     <group>
                         <field name="expected_quantity" string="Registry Count"/>
@@ -91,7 +93,7 @@
                 <field name="location_id"/>
                 <field name="status"/>
                 <field name="details"/>
-                <field name="pending"/>
+                <field name="freshness"/>
                 <field name="checked_at"/>
                 <field name="last_error" optional="hide"/>
             </tree>
@@ -102,6 +104,7 @@
         <field name="model">pinout.inventory.audit.device</field>
         <field name="arch" type="xml">
             <form create="false" edit="false" delete="false">
+                <header><button name="action_open_serial_quants" type="object" string="Serial Stock Quants" invisible="not final_lot_id"/></header>
                 <sheet>
                     <group>
                         <field name="device_id"/>
@@ -111,7 +114,7 @@
                         <field name="final_lot_id"/>
                         <field name="group_id"/>
                         <field name="status"/>
-                        <field name="pending" string="Pending / Stale"/>
+                        <field name="freshness"/>
                         <field name="checked_at"/>
                         <field name="details"/>
                         <field name="last_error"/>
@@ -134,8 +137,6 @@
             <form create="false" edit="false" delete="false" string="Inventory Audit">
                 <header>
                     <button name="action_refresh" type="object" string="Refresh" class="btn-primary"/>
-                    <button name="action_open_configuration" type="object" string="Configure Scope"/>
-                    <button name="action_open_groups" type="object" string="Browse Groups"/>
                 </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
@@ -145,13 +146,13 @@
                     </div>
                     <group>
                         <field name="company_id"/>
-                        <field name="full_check_pending"/>
-                        <field name="full_check_started_at"/>
-                        <field name="last_full_check_at"/>
+                        <field name="full_check_state"/>
+                        <field name="last_full_check_at" string="Last successful full check"/>
                         <field name="last_error" invisible="not last_error"/>
+                        <div invisible="not last_error">The check did not complete. Retry Refresh manually.</div>
                     </group>
                     <div class="alert alert-info" role="status"><field name="scope_message" nolabel="1"/></div>
-                    <p>Last successful results are shown below. Pending / stale results await Refresh. Surplus groups may need registration; untracked shortages do not identify missing UIDs.</p>
+                    <p>Saved results are shown below. Recheck required means sources have changed. No marked changes is not a guarantee of current stock. Surplus groups may need registration; untracked shortages do not identify missing UIDs.</p>
                     <separator string="Exact Mismatch and Group Shortage"/>
                     <field name="mismatch_group_ids" nolabel="1" readonly="1" context="{'tree_view_ref': 'pinout_device_registry.inventory_audit_group_tree', 'form_view_ref': 'pinout_device_registry.inventory_audit_group_form'}"/>
                 </sheet>
@@ -171,6 +172,6 @@
         <field name="binding_view_types">list,form</field>
         <field name="groups_id" eval="[(4, ref('stock.group_stock_user'))]"/>
         <field name="state">code</field>
-        <field name="code">records.action_refresh_inventory_audit()</field>
+        <field name="code">action = records.action_refresh_inventory_audit()</field>
     </record>
 </odoo>

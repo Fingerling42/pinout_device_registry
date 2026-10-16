@@ -5,6 +5,39 @@ from odoo.osv import expression
 class InventoryAuditConfig(models.Model):
     _inherit = "pinout.inventory.audit.config"
 
+    full_check_state = fields.Selection(
+        [
+            ("no_scope", "Scope not configured"),
+            ("never", "Check not performed"),
+            ("required", "Full check required"),
+            ("incomplete", "Full check incomplete"),
+            ("complete", "Full check completed"),
+        ],
+        compute="_compute_full_check_state",
+        string="Full check state",
+    )
+
+    @api.depends(
+        "scope_ids",
+        "last_error",
+        "full_check_started_at",
+        "full_check_pending",
+        "last_full_check_at",
+    )
+    def _compute_full_check_state(self):
+        for config in self:
+            config.full_check_state = (
+                "no_scope"
+                if not config.scope_ids
+                else "incomplete"
+                if config.last_error or config.full_check_started_at
+                else "required"
+                if config.full_check_pending
+                else "never"
+                if not config.last_full_check_at
+                else "complete"
+            )
+
     surplus_group_count = fields.Integer(compute="_compute_audit_counts")
     mismatch_group_count = fields.Integer(compute="_compute_audit_counts")
     not_checked_device_count = fields.Integer(compute="_compute_audit_counts")
@@ -46,7 +79,7 @@ class InventoryAuditConfig(models.Model):
         )
         return {
             "type": "ir.actions.act_window",
-            "name": _("Inventory Audit"),
+            "name": _("Inventory Audit") if config else _("Audit Scope"),
             "res_model": self._name,
             "res_id": config.id,
             "views": [(self.env.ref("pinout_device_registry." + view).id, "form")],
@@ -89,7 +122,7 @@ class InventoryAuditConfig(models.Model):
         self.check_access_rule("read")
         return {
             "type": "ir.actions.act_window",
-            "name": _("Inventory Audit Configuration"),
+            "name": _("Audit Scope"),
             "res_model": self._name,
             "res_id": self.id,
             "views": [
@@ -138,6 +171,26 @@ class InventoryAuditGroup(models.Model):
         }
 
 
+class InventoryAuditDevice(models.Model):
+    _inherit = "pinout.inventory.audit.device"
+
+    def action_open_serial_quants(self):
+        self.ensure_one()
+        self.check_access_rights("read")
+        self.check_access_rule("read")
+        self.env["stock.quant"].check_access_rights("read")
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Serial Stock Quants (all locations)"),
+            "res_model": "stock.quant",
+            "views": [(self.env.ref("stock.view_stock_quant_tree").id, "tree")],
+            "domain": [
+                ("lot_id", "in", (self.final_lot_id | self.device_id.final_lot_id).ids)
+            ],
+            "context": {"create": False, "edit": False, "delete": False},
+        }
+
+
 class PinoutDevice(models.Model):
     _inherit = "pinout.device"
 
@@ -168,6 +221,17 @@ class PinoutDevice(models.Model):
         groups="stock.group_stock_user",
         string="Inventory Check Pending / Stale",
     )
+    inventory_check_freshness = fields.Selection(
+        [
+            ("no_result", "No result"),
+            ("recheck", "Recheck required"),
+            ("unmarked", "No marked changes"),
+        ],
+        compute="_compute_inventory_check",
+        groups="stock.group_stock_user",
+        string="Inventory result freshness",
+    )
+
     inventory_check_error = fields.Text(
         compute="_compute_inventory_check", groups="stock.group_stock_user"
     )
@@ -200,6 +264,9 @@ class PinoutDevice(models.Model):
             device.last_inventory_check = result.checked_at if result else False
             device.inventory_check_pending = result.pending if result else True
             device.inventory_check_error = result.last_error if result else False
+            device.inventory_check_freshness = (
+                result.freshness if result else "no_result"
+            )
 
     def _inventory_check_domain(self, field, operator, value, default):
         Result = self.env["pinout.inventory.audit.device"]

@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 
 @tagged("post_install", "-at_install")
 class TestInventoryAuditVirtualLocations(InventoryAuditCase):
-    """Characterize standard balances before the M0 calculation change."""
+    """Standard virtual balances do not hide physical discrepancies."""
 
     def check_virtual_balance(self, device, virtual):
         quants = self.env["stock.quant"].search(
@@ -39,35 +39,70 @@ class TestInventoryAuditVirtualLocations(InventoryAuditCase):
             result.status,
             result.details,
         )
-        # Known M0 defect: a standard negative counterpart alone causes mismatch.
-        # Stage 3 must change this expectation to Match with the agreed rule.
-        self.assertEqual(result.status, "exact_mismatch")
-        self.assertIn("outside the expected", result.details)
+        self.assertEqual(result.status, "match")
+        self.assertIn("Virtual operation balance", result.details)
+        self.assertIn(virtual.display_name, result.details)
         physical = quants.filtered(lambda q: q.location_id != virtual)
-        self.assertEqual(
-            self.config._calculate_serial(device, physical)["status"], "match"
-        )
-        # Removing only the virtual counterpart must not hide physical errors.
         internal_negative = self.quant(
             -1, device.current_product_id, self.locations[2], device.final_lot_id
         )
-        self.assertEqual(
-            self.config._calculate_serial(device, physical | internal_negative)[
-                "status"
-            ],
-            "exact_mismatch",
-        )
-        internal_negative.quantity = 1
-        self.assertEqual(
-            self.config._calculate_serial(device, physical | internal_negative)[
-                "status"
-            ],
-            "exact_mismatch",
-        )
+        for qty in (-1, 1):
+            internal_negative.quantity = qty
+            self.config.action_refresh()
+            self.assertEqual(self.result(device).status, "exact_mismatch")
+            self.assertIn(self.locations[2].display_name, self.result(device).details)
+        internal_negative.quantity = 0
         physical.location_id = self.locations[1]
-        self.assertEqual(
-            self.config._calculate_serial(device, physical)["status"], "exact_mismatch"
+        self.config.action_refresh()
+        self.assertEqual(self.result(device).status, "exact_mismatch")
+
+    def test_virtual_rule_boundaries_and_rounding(self):
+        device, lot = self.serial("VIRTUAL-BOUNDARIES")
+        self.quant(1, self.products[1], lot=lot)
+        virtual = self.env["stock.location"].create(
+            {"name": "Boundary virtual", "usage": "production"}
         )
+        quant = self.quant(-1, self.products[1], virtual, lot)
+        for usage, scrap, qty, status in [
+            ("production", False, -1, "match"),
+            ("inventory", False, -1, "match"),
+            ("supplier", False, -1, "match"),
+            ("customer", False, -1, "match"),
+            ("customer", False, 1, "exact_mismatch"),
+            ("internal", False, -1, "exact_mismatch"),
+            ("transit", False, -1, "exact_mismatch"),
+            ("inventory", True, -1, "exact_mismatch"),
+            ("inventory", False, 0.001, "match"),
+        ]:
+            with self.subTest(usage=usage, scrap=scrap, qty=qty):
+                virtual.write({"usage": usage, "scrap_location": scrap})
+                quant.quantity = qty
+                self.config.action_refresh()
+                self.assertEqual(self.result(device).status, status)
+        virtual.write({"usage": "production", "scrap_location": False})
+        quant.quantity = -1
+        # Corrupted source keys cannot be produced through normal serial ORM
+        # constraints. Keep the real quant/search/access path for diagnosis.
+        other = self.env["res.company"].create({"name": "Virtual foreign company"})
+        for column, value in [
+            ("product_id", self.products[0].id),
+            ("company_id", other.id),
+        ]:
+            with self.subTest(column=column):
+                original = quant[column].id
+                self.env.flush_all()
+                self.env.cr.execute(
+                    f"UPDATE stock_quant SET {column} = %s WHERE id = %s",
+                    (value, quant.id),
+                )
+                quant.invalidate_recordset([column])
+                self.config.action_refresh()
+                self.assertEqual(self.result(device).status, "exact_mismatch")
+                self.env.cr.execute(
+                    f"UPDATE stock_quant SET {column} = %s WHERE id = %s",
+                    (original, quant.id),
+                )
+                quant.invalidate_recordset([column])
 
     def test_manufacturing_balance(self):
         product = self.products[1]

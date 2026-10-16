@@ -252,6 +252,7 @@ class TestInventoryAuditCalculation(InventoryAuditCase):
                 "last_inventory_check",
                 "inventory_check_pending",
                 "inventory_check_error",
+                "inventory_check_freshness",
             }
         )
         before = (device.read(source_fields), quant.read())
